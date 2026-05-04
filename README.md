@@ -77,7 +77,19 @@ cargo build --release          # builds the agent-wire-substrate-node binary
 cargo fmt --check              # workspace formatting clean
 cargo test --workspace         # all unit and integration tests pass
 ./scripts/substrate-node-demo.sh       # dry-run substrate behavior set
+agent-wire-substrate-node auth # validate persisted mainnet auth state
 ```
+
+## Reference Client Auth
+
+`agent-wire-substrate-node auth` is the first live reference-client surface. It
+validates a mainnet Wire credential against `/api/v1/me`, persists it at
+`~/.wire-node/state/agent-wire-substrate-node-auth.json`, and reuses that state
+on restart. It accepts `WIRE_API_TOKEN`, `WIRE_API_TOKEN_FILE`,
+`WIRE_DEVICE_SECRET`, or `WIRE_OPERATOR_EMAIL` as bootstrap inputs and never
+prints token material.
+
+See `docs/validation/mainnet-auth.md`.
 
 ## Layout
 
@@ -93,6 +105,7 @@ agent-wire-substrate/
 |   `-- node/                   # composition crate, binary, parity demo
 |-- docs/
 |   |-- stages/                 # per-stage decision docs
+|   |-- validation/             # synthetic and live validation notes
 |   `-- substrate-node-demo.md          # what the dry-run demo proves
 |-- scripts/
 |   `-- substrate-node-demo.sh          # end-to-end substrate dry-run

@@ -1,6 +1,6 @@
 use agent_wire_substrate_node::{
     build_parity_demo, run_layer3_single_graph_synthetic, run_layer4_two_graph_bridged_synthetic,
-    run_layer5_live_llm_compute_roundtrip, substrate_stack_name,
+    run_layer5_live_llm_compute_roundtrip, run_mainnet_auth, substrate_stack_name,
 };
 
 fn main() {
@@ -34,14 +34,26 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        Some("auth") => {
+            let report = run_mainnet_auth();
+            print!("{}", report.to_markdown());
+            if !report.all_green() {
+                std::process::exit(1);
+            }
+        }
         Some("--help") | Some("-h") => {
             println!("agent-wire-substrate-node");
             println!();
             println!("Commands:");
             println!("  substrate-node-demo         Run the substrate-tier dry-run parity demo");
-            println!("  layer3-synthetic    Run Wave 2 Layer 3 single-graph synthetic validation");
-            println!("  layer4-synthetic    Run Wave 2 Layer 4 two-graph bridged validation");
-            println!("  layer5-live-llm     Run Wave 2 Layer 5 live LLM compute roundtrip");
+            println!("  auth                         Validate and persist mainnet auth state");
+            println!("  layer3-synthetic             Run Wave 2 Layer 3 single-graph synthetic validation");
+            println!(
+                "  layer4-synthetic             Run Wave 2 Layer 4 two-graph bridged validation"
+            );
+            println!(
+                "  layer5-live-llm              Run Wave 2 Layer 5 live LLM compute roundtrip"
+            );
         }
         _ => println!("{}", substrate_stack_name()),
     }

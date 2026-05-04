@@ -10,6 +10,7 @@ pub mod layer3_synthetic;
 pub mod layer4_synthetic;
 pub mod layer5_live_llm;
 pub mod lifecycle;
+pub mod mainnet_auth;
 pub mod parity_demo;
 pub mod server;
 
@@ -26,6 +27,9 @@ pub use layer5_live_llm::{
     Layer5ProviderConfig, Layer5Status, Layer5Subtest,
 };
 pub use lifecycle::{BackgroundWorker, BackgroundWorkerLifecycle};
+pub use mainnet_auth::{
+    run_mainnet_auth, MainnetAuthReport, MainnetAuthStatus, MainnetAuthSubtest, MainnetIdentity,
+};
 pub use parity_demo::{
     build_parity_demo, parity_demo_assertions, ParityDemoReport, ParityDemoStep,
 };
