@@ -1,7 +1,8 @@
 use agent_wire_substrate_node::{
-    build_parity_demo, run_d3_live_compute_settlement, run_layer3_single_graph_synthetic,
-    run_layer4_two_graph_bridged_synthetic, run_layer5_live_llm_compute_roundtrip,
-    run_live_contribution_sync, run_mainnet_auth, substrate_stack_name,
+    build_parity_demo, run_d3_live_compute_settlement, run_l6_stability_driver,
+    run_layer3_single_graph_synthetic, run_layer4_two_graph_bridged_synthetic,
+    run_layer5_live_llm_compute_roundtrip, run_live_contribution_sync, run_mainnet_auth,
+    substrate_stack_name,
 };
 
 fn main() {
@@ -42,6 +43,13 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        Some("l6-stability-driver") => {
+            let report = run_l6_stability_driver();
+            print!("{}", report.to_markdown());
+            if !report.all_green() {
+                std::process::exit(1);
+            }
+        }
         Some("auth") => {
             let report = run_mainnet_auth();
             print!("{}", report.to_markdown());
@@ -74,6 +82,9 @@ fn main() {
             );
             println!(
                 "  d3-live-compute-settlement   Run D3 live mainnet compute settlement validation"
+            );
+            println!(
+                "  l6-stability-driver          Run repeated D3 cycles for L6 stability validation"
             );
         }
         _ => println!("{}", substrate_stack_name()),

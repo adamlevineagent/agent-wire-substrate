@@ -8,6 +8,7 @@ pub mod boot;
 pub mod config;
 pub mod contribution_sync;
 pub mod d3_live_compute_settlement;
+pub mod l6_stability_driver;
 pub mod layer3_synthetic;
 pub mod layer4_synthetic;
 pub mod layer5_live_llm;
@@ -25,6 +26,7 @@ pub use contribution_sync::{
 pub use d3_live_compute_settlement::{
     run_d3_live_compute_settlement, D3LiveComputeSettlementReport, D3Status, D3Subtest,
 };
+pub use l6_stability_driver::{run_l6_stability_driver, L6CycleResult, L6StabilityReport};
 pub use layer3_synthetic::{
     run_layer3_single_graph_synthetic, Layer3Status, Layer3Subtest, Layer3SyntheticReport,
 };
