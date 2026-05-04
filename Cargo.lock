@@ -43,6 +43,8 @@ dependencies = [
  "agent-wire-storage-market",
  "agent-wire-transport-cloudflare",
  "serde",
+ "time",
+ "uuid",
 ]
 
 [[package]]

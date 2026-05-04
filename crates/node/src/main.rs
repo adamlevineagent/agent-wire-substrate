@@ -1,4 +1,4 @@
-use agent_wire_node::{build_parity_demo, substrate_stack_name};
+use agent_wire_node::{build_parity_demo, run_layer3_single_graph_synthetic, substrate_stack_name};
 
 fn main() {
     let command = std::env::args().nth(1);
@@ -10,11 +10,19 @@ fn main() {
                 std::process::exit(1);
             }
         },
+        Some("layer3-synthetic") => match run_layer3_single_graph_synthetic() {
+            Ok(report) => print!("{}", report.to_markdown()),
+            Err(error) => {
+                eprintln!("failed to run Layer 3 synthetic validation: {error}");
+                std::process::exit(1);
+            }
+        },
         Some("--help") | Some("-h") => {
             println!("agent-wire-node");
             println!();
             println!("Commands:");
-            println!("  parity-demo    Run the substrate-tier dry-run parity demo");
+            println!("  parity-demo         Run the substrate-tier dry-run parity demo");
+            println!("  layer3-synthetic    Run Wave 2 Layer 3 single-graph synthetic validation");
         }
         _ => println!("{}", substrate_stack_name()),
     }

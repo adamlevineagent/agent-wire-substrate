@@ -6,12 +6,16 @@
 
 pub mod boot;
 pub mod config;
+pub mod layer3_synthetic;
 pub mod lifecycle;
 pub mod parity_demo;
 pub mod server;
 
 pub use boot::{compose_substrate_node, MarketComposition, NodeRuntime};
 pub use config::{LocalPersistence, NodeConfig, NodeKeys, OptInPolicy};
+pub use layer3_synthetic::{
+    run_layer3_single_graph_synthetic, Layer3Status, Layer3Subtest, Layer3SyntheticReport,
+};
 pub use lifecycle::{BackgroundWorker, BackgroundWorkerLifecycle};
 pub use parity_demo::{
     build_parity_demo, parity_demo_assertions, ParityDemoReport, ParityDemoStep,
@@ -53,5 +57,21 @@ mod tests {
             .steps
             .iter()
             .any(|step| step.name == "wake-up-triggers"));
+    }
+
+    #[test]
+    fn layer3_synthetic_validation_covers_wave2_single_graph_checks() {
+        let report = run_layer3_single_graph_synthetic().unwrap();
+
+        assert!(report.all_green());
+        assert_eq!(report.subtests.len(), 8);
+        assert!(report
+            .subtests
+            .iter()
+            .any(|step| step.name == "provider-registers-requester-sees-provider"));
+        assert!(report
+            .subtests
+            .iter()
+            .any(|step| step.name == "cloudflare-rotation-mid-flight"));
     }
 }
