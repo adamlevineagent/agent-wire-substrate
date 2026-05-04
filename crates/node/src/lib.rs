@@ -7,6 +7,7 @@
 pub mod boot;
 pub mod config;
 pub mod layer3_synthetic;
+pub mod layer4_synthetic;
 pub mod lifecycle;
 pub mod parity_demo;
 pub mod server;
@@ -15,6 +16,9 @@ pub use boot::{compose_substrate_node, MarketComposition, NodeRuntime};
 pub use config::{LocalPersistence, NodeConfig, NodeKeys, OptInPolicy};
 pub use layer3_synthetic::{
     run_layer3_single_graph_synthetic, Layer3Status, Layer3Subtest, Layer3SyntheticReport,
+};
+pub use layer4_synthetic::{
+    run_layer4_two_graph_bridged_synthetic, Layer4Status, Layer4Subtest, Layer4SyntheticReport,
 };
 pub use lifecycle::{BackgroundWorker, BackgroundWorkerLifecycle};
 pub use parity_demo::{
@@ -73,5 +77,21 @@ mod tests {
             .subtests
             .iter()
             .any(|step| step.name == "cloudflare-rotation-mid-flight"));
+    }
+
+    #[test]
+    fn layer4_synthetic_validation_covers_wave2_two_graph_checks() {
+        let report = run_layer4_two_graph_bridged_synthetic().unwrap();
+
+        assert!(report.all_green());
+        assert_eq!(report.subtests.len(), 8);
+        assert!(report
+            .subtests
+            .iter()
+            .any(|step| step.name == "identity-claim-master-signature-both-graphs"));
+        assert!(report
+            .subtests
+            .iter()
+            .any(|step| step.name == "bridge-severed-graphs-independent"));
     }
 }
