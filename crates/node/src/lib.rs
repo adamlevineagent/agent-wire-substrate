@@ -8,6 +8,7 @@ pub mod boot;
 pub mod config;
 pub mod layer3_synthetic;
 pub mod layer4_synthetic;
+pub mod layer5_live_llm;
 pub mod lifecycle;
 pub mod parity_demo;
 pub mod server;
@@ -19,6 +20,10 @@ pub use layer3_synthetic::{
 };
 pub use layer4_synthetic::{
     run_layer4_two_graph_bridged_synthetic, Layer4Status, Layer4Subtest, Layer4SyntheticReport,
+};
+pub use layer5_live_llm::{
+    run_layer5_live_llm_compute_roundtrip, run_layer5_live_llm_with_adapter, Layer5LiveLlmReport,
+    Layer5ProviderConfig, Layer5Status, Layer5Subtest,
 };
 pub use lifecycle::{BackgroundWorker, BackgroundWorkerLifecycle};
 pub use parity_demo::{
@@ -93,5 +98,17 @@ mod tests {
             .subtests
             .iter()
             .any(|step| step.name == "bridge-severed-graphs-independent"));
+    }
+
+    #[test]
+    fn layer5_live_llm_validation_fails_closed_without_provider_config() {
+        if std::env::var("OPENROUTER_API_KEY").is_ok() {
+            return;
+        }
+
+        let report = run_layer5_live_llm_compute_roundtrip();
+
+        assert!(!report.all_green());
+        assert_eq!(report.subtests[0].name, "provider-config-resolves-live-llm");
     }
 }

@@ -14,5 +14,7 @@ agent-wire-relay-market = { path = "../relay-market" }
 agent-wire-storage-market = { path = "../storage-market" }
 agent-wire-transport-cloudflare = { path = "../transport-cloudflare" }
 serde.workspace = true
+serde_json.workspace = true
 time.workspace = true
+ureq = { version = "2", features = ["json"] }
 uuid.workspace = true
