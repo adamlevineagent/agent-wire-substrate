@@ -122,9 +122,9 @@ pub fn run_layer3_single_graph_synthetic() -> Result<Layer3SyntheticReport, Foun
         graph.claim_compute_envelope(),
     );
     report.record(
-        "duplicate-compute-claim-rejected",
-        "job claims are idempotent across rotation or replay",
-        graph.reject_duplicate_compute_claim(),
+        "duplicate-job-through-rotated-tunnel-cannot-double-claim",
+        "job claims are idempotent across tunnel rotation and replay",
+        graph.duplicate_job_through_rotated_tunnel_cannot_double_claim(),
     );
     report.record(
         "provider-returns-synthetic-completion",
@@ -308,20 +308,48 @@ impl SyntheticWireGraph {
         ])
     }
 
-    fn reject_duplicate_compute_claim(&mut self) -> Result<Vec<String>, String> {
+    fn duplicate_job_through_rotated_tunnel_cannot_double_claim(
+        &mut self,
+    ) -> Result<Vec<String>, String> {
         let job = self
             .latest_job()
             .ok_or_else(|| "no compute contribution was published".to_owned())?
             .payload
             .clone();
+        let previous_url = self.active_tunnel.public_url.as_str().to_owned();
+        let driver = CloudflareTunnelDriver::with_static_tunnel(
+            TunnelUrl::parse("https://l3-replay-route.example")
+                .map_err(|error| error.to_string())?,
+        );
+        let rotated = driver
+            .open_tunnel(
+                TunnelRequest::new(self.runtime.config.local_api_endpoint.clone()).with_callback(
+                    CallbackUrl::parse("https://node2-demo.example/replay-callback")
+                        .map_err(|error| error.to_string())?,
+                ),
+            )
+            .map_err(|error| error.to_string())?;
+        self.active_tunnel = rotated.clone();
+        self.rotated_tunnels.push(rotated.clone());
+
+        if previous_url == rotated.public_url.as_str() {
+            return Err("replay tunnel rotation did not change the public tunnel URL".to_owned());
+        }
+        if !self.event_bus.contains_job_ref(&job.job_ref) {
+            return Err("rotated tunnel replay could not see the original job".to_owned());
+        }
         if self.claimed_jobs.insert(job.job_ref.clone()) {
-            return Err("duplicate claim was accepted".to_owned());
+            return Err("rotated tunnel replay double-claimed the job".to_owned());
         }
 
-        Ok(vec![format!(
-            "second claim for {} returned AlreadyClaimed",
-            job.job_ref
-        )])
+        Ok(vec![
+            format!(
+                "rotated replay tunnel {} -> {}",
+                previous_url,
+                rotated.public_url.as_str()
+            ),
+            format!("second claim for {} returned AlreadyClaimed", job.job_ref),
+        ])
     }
 
     fn return_synthetic_completion(&mut self) -> Result<Vec<String>, String> {

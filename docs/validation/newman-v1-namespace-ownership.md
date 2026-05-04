@@ -11,7 +11,8 @@ Scope:
   `WrappedContract<T>` instead of public raw DTO unwrap helpers.
 - Reputation snapshots carry master signatures, import verifies statement-bound bytes, and kitty
   rejects duplicate snapshot imports.
-- Layer 3 compute claim and completion ledgers reject replayed claim/completion attempts.
+- Layer 3 compute claim and completion ledgers reject replayed claim/completion attempts, including
+  the rotated-tunnel duplicate-job path.
 - Vocabulary entries use bounded constructors, typed `CrossGraphRef` definition anchors, and a
   reserved primitive-name registry with explicit system construction for built-ins.
 - Sandbox capability extensions use bounded, validated `ExtensionCapability` names; policies bind
@@ -30,5 +31,8 @@ CARGO_HOME=/private/tmp/codex-kramer-cargo-home ./scripts/layer4-two-graph-bridg
 CARGO_HOME=/private/tmp/codex-kramer-cargo-home cargo build --release
 git diff --check
 ```
+
+The Layer 3 and Layer 4 validation docs include explicit property-tested and property-not-tested
+coverage tables for every sub-test.
 
 No deploy, live smoke, live database write, live LLM call, or npm publish is part of this pass.

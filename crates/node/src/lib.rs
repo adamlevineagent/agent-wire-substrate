@@ -94,7 +94,7 @@ mod tests {
         assert!(report
             .subtests
             .iter()
-            .any(|step| step.name == "duplicate-compute-claim-rejected"));
+            .any(|step| step.name == "duplicate-job-through-rotated-tunnel-cannot-double-claim"));
     }
 
     #[test]
