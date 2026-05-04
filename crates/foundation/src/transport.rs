@@ -60,17 +60,42 @@ pub struct PublicEndpoint {
 pub struct TunnelRequest {
     pub local_endpoint: EndpointUrl,
     pub requested_public_url: Option<TunnelUrl>,
+    pub callbacks: Vec<CallbackUrl>,
+}
+
+impl TunnelRequest {
+    pub fn new(local_endpoint: EndpointUrl) -> Self {
+        Self {
+            local_endpoint,
+            requested_public_url: None,
+            callbacks: Vec::new(),
+        }
+    }
+
+    pub fn with_requested_public_url(mut self, public_url: TunnelUrl) -> Self {
+        self.requested_public_url = Some(public_url);
+        self
+    }
+
+    pub fn with_callback(mut self, callback: CallbackUrl) -> Self {
+        self.callbacks.push(callback);
+        self
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TunnelSession {
+    pub driver_name: String,
     pub public_url: TunnelUrl,
+    pub local_endpoint: EndpointUrl,
     pub callbacks: Vec<CallbackUrl>,
 }
 
 pub trait TransportDriver {
     type Error;
 
+    fn driver_name(&self) -> &'static str;
+    fn tunnel_url(&self) -> Option<TunnelUrl>;
     fn open_tunnel(&self, request: TunnelRequest) -> Result<TunnelSession, Self::Error>;
 }
 
@@ -100,6 +125,29 @@ mod tests {
             Err(FoundationError::UnsupportedScheme {
                 field: "tunnel_url"
             })
+        );
+    }
+
+    #[test]
+    fn tunnel_url_rejects_malformed_url() {
+        assert_eq!(
+            TunnelUrl::parse("https://"),
+            Err(FoundationError::InvalidFormat {
+                field: "tunnel_url"
+            })
+        );
+    }
+
+    #[test]
+    fn tunnel_request_accumulates_callbacks() {
+        let request = TunnelRequest::new(EndpointUrl::parse("http://127.0.0.1:8787").unwrap())
+            .with_requested_public_url(TunnelUrl::parse("https://tunnel.example").unwrap())
+            .with_callback(CallbackUrl::parse("https://example.com/callback").unwrap());
+
+        assert_eq!(request.callbacks.len(), 1);
+        assert_eq!(
+            request.requested_public_url.unwrap().as_str(),
+            "https://tunnel.example"
         );
     }
 }
