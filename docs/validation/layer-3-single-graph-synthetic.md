@@ -12,14 +12,17 @@ scripts/layer3-single-graph-synthetic.sh
 ```
 
 The harness composes the Stage 10 node runtime, creates a synthetic in-memory graph, and executes
-the eight checks from the Wave 2 validation plan:
+the original Wave 2 validation checks plus replay-hardening checks added after the Newman V1
+adversarial pass:
 
 | Test | Status | What it proves |
 |---|---|---|
 | Provider registers, requester queries roster, sees provider | PASS | Foundation roster and identity primitives |
 | Requester publishes a `ComputeJobEnvelope` contribution | PASS | Compute-market neutral contracts accept real envelopes |
 | Provider sees envelope via subscription, claims it | PASS | `EventSink`, `DispatchPolicy`, and `QueueAdmission` cooperate end-to-end |
+| Duplicate compute claim is rejected | PASS | Job claims are idempotent across rotation or replay |
 | Provider returns synthetic completion / echo response | PASS | `ChronicleSink` and `ExecutionAdapter` trace lifecycle |
+| Duplicate compute completion is rejected | PASS | Compute completions are single-shot per `job_ref` |
 | Requester reads completion, both sides settle credits | PASS | Foundation economics primitives settle both sides |
 | Storage-market write/read of a 1MB blob | PASS | Storage-market trait scaffold round-trips the blob |
 | Relay-market subscribe/publish | PASS | Relay-market scaffold leases a path and ferries a message |

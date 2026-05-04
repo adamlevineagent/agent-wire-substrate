@@ -16,4 +16,7 @@ pub enum FoundationError {
 
     #[error("{field} is outside the supported range")]
     OutOfRange { field: &'static str },
+
+    #[error("{field} uses a reserved foundation name")]
+    ReservedName { field: &'static str },
 }

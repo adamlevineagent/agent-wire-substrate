@@ -148,6 +148,7 @@ pub struct ReputationSnapshot {
     pub registry: ReputationRegistryId,
     pub source_ref: CrossGraphRef,
     pub exported_at: OffsetDateTime,
+    pub signature: MasterSignature,
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use agent_wire_contracts::{HandlePathDto, MoneyAmountDto, TunnelEndpointDto};
+use agent_wire_contracts::{HandlePathDto, MoneyAmountDto, TunnelEndpointDto, WireDto};
 
 use crate::economics::CreditAmount;
 use crate::namespace::NamespaceId;
@@ -26,12 +26,12 @@ impl BoundaryName {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct WrappedContract<T> {
+pub struct WrappedContract<T: WireDto> {
     boundary: BoundaryName,
     inner: T,
 }
 
-impl<T> WrappedContract<T> {
+impl<T: WireDto> WrappedContract<T> {
     pub fn wrap_contract(boundary: BoundaryName, inner: T) -> Self {
         Self { boundary, inner }
     }
@@ -40,29 +40,34 @@ impl<T> WrappedContract<T> {
         &self.boundary
     }
 
-    pub fn as_inner(&self) -> &T {
+    #[cfg(test)]
+    pub(crate) fn as_inner(&self) -> &T {
         &self.inner
     }
 
-    pub fn unwrap_contract(self) -> T {
+    fn into_inner(self) -> T {
         self.inner
     }
 }
 
-pub trait FromContractDto<Dto>: Sized {
+pub trait FromContractDto<Dto: WireDto>: Sized {
     type Error;
 
     fn from_contract_dto(dto: WrappedContract<Dto>) -> Result<Self, Self::Error>;
 }
 
-pub trait IntoContractDto<Dto> {
-    fn into_contract_dto(self, boundary: BoundaryName) -> WrappedContract<Dto>;
+pub trait IntoContractDto<Dto: WireDto> {
+    type Error;
+
+    fn into_contract_dto(self, boundary: BoundaryName)
+        -> Result<WrappedContract<Dto>, Self::Error>;
 }
 
-impl TryFrom<HandlePathDto> for CrossGraphRef {
+impl FromContractDto<HandlePathDto> for CrossGraphRef {
     type Error = FoundationError;
 
-    fn try_from(value: HandlePathDto) -> Result<Self, Self::Error> {
+    fn from_contract_dto(dto: WrappedContract<HandlePathDto>) -> Result<Self, Self::Error> {
+        let value = dto.into_inner();
         Ok(Self {
             namespace: NamespaceId::new(value.handle)?,
             day: value.wire_day,
@@ -72,47 +77,71 @@ impl TryFrom<HandlePathDto> for CrossGraphRef {
     }
 }
 
-impl From<CrossGraphRef> for HandlePathDto {
-    fn from(value: CrossGraphRef) -> Self {
-        Self {
-            handle: value.namespace.as_str().to_owned(),
-            wire_day: value.day,
-            graph_slug: value.slug,
-            sequence: value.sequence,
-        }
-    }
-}
-
-impl From<MoneyAmountDto> for CreditAmount {
-    fn from(value: MoneyAmountDto) -> Self {
-        Self::from_sats(value.credits as u128)
-    }
-}
-
-impl TryFrom<CreditAmount> for MoneyAmountDto {
+impl IntoContractDto<HandlePathDto> for CrossGraphRef {
     type Error = FoundationError;
 
-    fn try_from(value: CreditAmount) -> Result<Self, Self::Error> {
-        let credits = u64::try_from(value.as_sats()).map_err(|_| FoundationError::OutOfRange {
+    fn into_contract_dto(
+        self,
+        boundary: BoundaryName,
+    ) -> Result<WrappedContract<HandlePathDto>, Self::Error> {
+        Ok(WrappedContract::wrap_contract(
+            boundary,
+            HandlePathDto {
+                handle: self.namespace.as_str().to_owned(),
+                wire_day: self.day,
+                graph_slug: self.slug,
+                sequence: self.sequence,
+            },
+        ))
+    }
+}
+
+impl FromContractDto<MoneyAmountDto> for CreditAmount {
+    type Error = FoundationError;
+
+    fn from_contract_dto(dto: WrappedContract<MoneyAmountDto>) -> Result<Self, Self::Error> {
+        Ok(Self::from_sats(dto.into_inner().credits as u128))
+    }
+}
+
+impl IntoContractDto<MoneyAmountDto> for CreditAmount {
+    type Error = FoundationError;
+
+    fn into_contract_dto(
+        self,
+        boundary: BoundaryName,
+    ) -> Result<WrappedContract<MoneyAmountDto>, Self::Error> {
+        let credits = u64::try_from(self.as_sats()).map_err(|_| FoundationError::OutOfRange {
             field: "money_amount",
         })?;
-        Ok(Self { credits })
+        Ok(WrappedContract::wrap_contract(
+            boundary,
+            MoneyAmountDto { credits },
+        ))
     }
 }
 
-impl TryFrom<TunnelEndpointDto> for TunnelUrl {
+impl FromContractDto<TunnelEndpointDto> for TunnelUrl {
     type Error = FoundationError;
 
-    fn try_from(value: TunnelEndpointDto) -> Result<Self, Self::Error> {
-        TunnelUrl::parse(&value.url)
+    fn from_contract_dto(dto: WrappedContract<TunnelEndpointDto>) -> Result<Self, Self::Error> {
+        TunnelUrl::parse(&dto.into_inner().url)
     }
 }
 
-impl From<TunnelUrl> for TunnelEndpointDto {
-    fn from(value: TunnelUrl) -> Self {
-        Self {
-            url: value.as_str().to_owned(),
-        }
+impl IntoContractDto<TunnelEndpointDto> for TunnelUrl {
+    type Error = FoundationError;
+
+    fn into_contract_dto(
+        self,
+        boundary: BoundaryName,
+    ) -> Result<WrappedContract<TunnelEndpointDto>, Self::Error> {
+        Ok(WrappedContract::wrap_contract(
+            boundary,
+            TunnelEndpointDto {
+                url: self.as_str().to_owned(),
+            },
+        ))
     }
 }
 
@@ -123,15 +152,17 @@ mod tests {
     #[test]
     fn wrap_keeps_boundary_visible() {
         let boundary = BoundaryName::new("transport").unwrap();
-        let wrapped = WrappedContract::wrap_contract(boundary.clone(), 42_u64);
+        let wrapped =
+            WrappedContract::wrap_contract(boundary.clone(), MoneyAmountDto { credits: 42 });
 
         assert_eq!(wrapped.boundary(), &boundary);
-        assert_eq!(*wrapped.as_inner(), 42);
-        assert_eq!(wrapped.unwrap_contract(), 42);
+        assert_eq!(wrapped.as_inner().credits, 42);
+        assert_eq!(wrapped.into_inner(), MoneyAmountDto { credits: 42 });
     }
 
     #[test]
     fn converts_handle_path_dto_to_foundation_ref() {
+        let boundary = BoundaryName::new("identity").unwrap();
         let dto = HandlePathDto {
             handle: "playful".to_owned(),
             wire_day: 122,
@@ -139,13 +170,21 @@ mod tests {
             sequence: 7,
         };
 
-        let runtime = CrossGraphRef::try_from(dto.clone()).unwrap();
+        let runtime = CrossGraphRef::from_contract_dto(WrappedContract::wrap_contract(
+            boundary.clone(),
+            dto.clone(),
+        ))
+        .unwrap();
         assert_eq!(runtime.to_string(), "playful/122/substrate/7");
-        assert_eq!(HandlePathDto::from(runtime), dto);
+        assert_eq!(
+            runtime.into_contract_dto(boundary).unwrap().into_inner(),
+            dto
+        );
     }
 
     #[test]
     fn rejects_invalid_handle_path_dto_at_boundary() {
+        let boundary = BoundaryName::new("identity").unwrap();
         let dto = HandlePathDto {
             handle: "bad handle".to_owned(),
             wire_day: 122,
@@ -154,32 +193,41 @@ mod tests {
         };
 
         assert_eq!(
-            CrossGraphRef::try_from(dto),
+            CrossGraphRef::from_contract_dto(WrappedContract::wrap_contract(boundary, dto)),
             Err(FoundationError::InvalidCharacter { field: "namespace" })
         );
     }
 
     #[test]
     fn converts_money_dto_without_leaking_contract_shape() {
-        let amount = CreditAmount::from(MoneyAmountDto { credits: 42 });
+        let boundary = BoundaryName::new("economics").unwrap();
+        let amount = CreditAmount::from_contract_dto(WrappedContract::wrap_contract(
+            boundary.clone(),
+            MoneyAmountDto { credits: 42 },
+        ))
+        .unwrap();
 
         assert_eq!(amount.as_sats(), 42);
         assert_eq!(
-            MoneyAmountDto::try_from(amount).unwrap(),
+            amount.into_contract_dto(boundary).unwrap().into_inner(),
             MoneyAmountDto { credits: 42 }
         );
     }
 
     #[test]
     fn converts_tunnel_endpoint_dto_with_runtime_validation() {
-        let tunnel = TunnelUrl::try_from(TunnelEndpointDto {
-            url: "https://wire.example/tunnel/".to_owned(),
-        })
+        let boundary = BoundaryName::new("transport").unwrap();
+        let tunnel = TunnelUrl::from_contract_dto(WrappedContract::wrap_contract(
+            boundary.clone(),
+            TunnelEndpointDto {
+                url: "https://wire.example/tunnel/".to_owned(),
+            },
+        ))
         .unwrap();
 
         assert_eq!(tunnel.as_str(), "https://wire.example/tunnel");
         assert_eq!(
-            TunnelEndpointDto::from(tunnel),
+            tunnel.into_contract_dto(boundary).unwrap().into_inner(),
             TunnelEndpointDto {
                 url: "https://wire.example/tunnel".to_owned()
             }

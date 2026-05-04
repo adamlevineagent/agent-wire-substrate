@@ -24,7 +24,10 @@ pub use identity::{
 };
 pub use namespace::{GraphKind, GraphSlug, NamespaceId, ReputationRegistryId};
 pub use refs::{ContributionRef, CrossGraphRef, HandlePath};
-pub use sandbox::{Capability, CapabilityGrant, ResourceBudget, SandboxPolicy};
+pub use sandbox::{
+    BoundSandboxPolicy, BudgetAccountant, Capability, CapabilityGrant, ExtensionCapability,
+    ResourceBudget, SandboxPolicy,
+};
 pub use transport::{
     CallbackUrl, EndpointUrl, PublicEndpoint, TransportDriver, TunnelRequest, TunnelSession,
     TunnelUrl,

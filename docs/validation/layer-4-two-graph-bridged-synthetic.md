@@ -18,6 +18,7 @@ live database, live LLM provider, live smoke, deploy, or npm publish.
 |---|---|---|
 | Identity claim with master signature works on both graphs | PASS | `HandleClaim`, `PrivateAliasMapping`, `PrivateGraphRegistration`, master public key portability, and mid-slug parsing operate together |
 | Reputation snapshot at kitty onboarding captures mainnet score | PASS | Kitty imports a one-shot signed mainnet reputation snapshot |
+| Reputation snapshot import is one-shot | PASS | Duplicate imports return `SnapshotAlreadyImported` and tampered snapshots fail statement-bound signature verification |
 | Mainnet reputation evolution does not propagate post-snapshot | PASS | The reputation firewall is one-shot and asymmetric |
 | Kitty contribution with `release_to_mainnet=true` surfaces on mainnet | PASS | Bridge release policy carries a mid-slug contribution into mainnet |
 | Credit transferred kitty to mainnet incurs bridge tax | PASS | Sovereign-mode 2 percent bridge friction applies at par |

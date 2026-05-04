@@ -53,35 +53,31 @@ impl NodeConfig {
                 key_store_label: "agent-wire-substrate-node-v2".to_owned(),
             },
             surfaces: OperatorApiSurface::all_enabled(EndpointUrl::parse("http://127.0.0.1:8787")?),
-            sandbox: SandboxPolicy {
-                grants: vec![
-                    CapabilityGrant {
-                        capability: Capability::ReadContribution,
-                        reason: "sync mainnet contributions".to_owned(),
-                    },
-                    CapabilityGrant {
-                        capability: Capability::WriteContribution,
-                        reason: "publish local node receipts".to_owned(),
-                    },
-                    CapabilityGrant {
-                        capability: Capability::OpenTunnel,
-                        reason: "accept tunnel-based peer delivery".to_owned(),
-                    },
-                    CapabilityGrant {
-                        capability: Capability::ExecuteModel,
-                        reason: "serve opted-in compute-market jobs".to_owned(),
-                    },
-                    CapabilityGrant {
-                        capability: Capability::EmitEvent,
-                        reason: "wake on Wire coordination events".to_owned(),
-                    },
+            sandbox: SandboxPolicy::new(
+                vec![
+                    CapabilityGrant::new(
+                        Capability::ReadContribution,
+                        "sync mainnet contributions",
+                    )?,
+                    CapabilityGrant::new(
+                        Capability::WriteContribution,
+                        "publish local node receipts",
+                    )?,
+                    CapabilityGrant::new(
+                        Capability::OpenTunnel,
+                        "accept tunnel-based peer delivery",
+                    )?,
+                    CapabilityGrant::new(
+                        Capability::ExecuteModel,
+                        "serve opted-in compute-market jobs",
+                    )?,
+                    CapabilityGrant::new(
+                        Capability::EmitEvent,
+                        "wake on Wire coordination events",
+                    )?,
                 ],
-                budget: ResourceBudget {
-                    max_credits: CreditAmount::from_sats(10_000),
-                    max_events: 10_000,
-                    max_wall_time_ms: 86_400_000,
-                },
-            },
+                ResourceBudget::new(CreditAmount::from_sats(10_000), 10_000, 86_400_000)?,
+            )?,
         })
     }
 }

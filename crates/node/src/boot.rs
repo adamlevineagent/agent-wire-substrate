@@ -153,15 +153,15 @@ fn compose_vocabulary_entry() -> Result<VocabularyEntry, FoundationError> {
         agent_wire_foundation::NamespaceId::new("playful")?,
         "wire-v2",
     )?;
-    Ok(VocabularyEntry {
-        term: VocabularyTermRef {
+    VocabularyEntry::new(
+        VocabularyTermRef {
             vocabulary,
-            key: VocabularyKey::new("compute-market")?,
+            key: VocabularyKey::system("compute-market")?,
             definition_ref: demo_ref("vocabulary", 1)?,
         },
-        label: "Compute Market".to_owned(),
-        description: Some("Node 2.0 substrate-tier compute market vocabulary term".to_owned()),
-    })
+        "Compute Market",
+        Some("Node 2.0 substrate-tier compute market vocabulary term"),
+    )
 }
 
 fn demo_ref(slug: &str, sequence: u32) -> Result<CrossGraphRef, FoundationError> {

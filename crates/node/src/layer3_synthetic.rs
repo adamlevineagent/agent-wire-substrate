@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use agent_wire_compute_market::{
     ChronicleReceipt, ChronicleSink, ComputeJobContract, ComputeJobEnvelope, ComputeOffer,
@@ -52,7 +52,7 @@ impl Layer3SyntheticReport {
         output.push_str("This harness is deterministic and in-memory. It exercises substrate-tier contracts, traits, and node composition without live LLM calls, live database access, deploy, live smoke, or npm publish.\n\n");
         output.push_str("## Result\n\n");
         output.push_str(if self.all_green() {
-            "All 8 Layer 3 sub-tests are green.\n\n"
+            "All 10 Layer 3 sub-tests are green.\n\n"
         } else {
             "One or more Layer 3 sub-tests failed; see reasons below.\n\n"
         });
@@ -122,9 +122,19 @@ pub fn run_layer3_single_graph_synthetic() -> Result<Layer3SyntheticReport, Foun
         graph.claim_compute_envelope(),
     );
     report.record(
+        "duplicate-compute-claim-rejected",
+        "job claims are idempotent across rotation or replay",
+        graph.reject_duplicate_compute_claim(),
+    );
+    report.record(
         "provider-returns-synthetic-completion",
         "ChronicleSink and ExecutionAdapter trace lifecycle",
         graph.return_synthetic_completion(),
+    );
+    report.record(
+        "duplicate-compute-completion-rejected",
+        "compute completions are single-shot per job_ref",
+        graph.reject_duplicate_compute_completion(),
     );
     report.record(
         "requester-reads-completion-and-settles",
@@ -177,7 +187,8 @@ struct SyntheticWireGraph {
     compute_contributions: Vec<ComputeJobContract>,
     event_bus: SyntheticEventBus<ComputeJobEnvelope>,
     chronicle: SyntheticChronicle<DeliveryReceipt>,
-    claimed_jobs: Vec<CrossGraphRef>,
+    claimed_jobs: HashSet<CrossGraphRef>,
+    completed_jobs: HashSet<CrossGraphRef>,
     completions: Vec<SyntheticCompletion>,
     settlements: Vec<SyntheticSettlement>,
     storage: SyntheticStorageMarket,
@@ -199,7 +210,8 @@ impl SyntheticWireGraph {
             compute_contributions: Vec::new(),
             event_bus: SyntheticEventBus::default(),
             chronicle: SyntheticChronicle::new(handle_path(["agent", "playful", "chronicle"])?),
-            claimed_jobs: Vec::new(),
+            claimed_jobs: HashSet::new(),
+            completed_jobs: HashSet::new(),
             completions: Vec::new(),
             settlements: Vec::new(),
             rotated_tunnels: Vec::new(),
@@ -275,7 +287,9 @@ impl SyntheticWireGraph {
             return Err("dispatch policy max price exceeds job budget".to_owned());
         }
 
-        self.claimed_jobs.push(job.job_ref.clone());
+        if !self.claimed_jobs.insert(job.job_ref.clone()) {
+            return Err("job was already claimed".to_owned());
+        }
         let outcome = MarketDispatchOutcome {
             dispatch_id: agent_wire_compute_market::ComputeDispatchId("dispatch-l3-1".to_owned()),
             job_ref: job.job_ref.clone(),
@@ -294,6 +308,22 @@ impl SyntheticWireGraph {
         ])
     }
 
+    fn reject_duplicate_compute_claim(&mut self) -> Result<Vec<String>, String> {
+        let job = self
+            .latest_job()
+            .ok_or_else(|| "no compute contribution was published".to_owned())?
+            .payload
+            .clone();
+        if self.claimed_jobs.insert(job.job_ref.clone()) {
+            return Err("duplicate claim was accepted".to_owned());
+        }
+
+        Ok(vec![format!(
+            "second claim for {} returned AlreadyClaimed",
+            job.job_ref
+        )])
+    }
+
     fn return_synthetic_completion(&mut self) -> Result<Vec<String>, String> {
         let job = self
             .latest_job()
@@ -302,6 +332,9 @@ impl SyntheticWireGraph {
             .clone();
         if !self.claimed_jobs.contains(&job.job_ref) {
             return Err("provider cannot complete an unclaimed job".to_owned());
+        }
+        if self.completed_jobs.contains(&job.job_ref) {
+            return Err("job was already completed".to_owned());
         }
 
         let adapter = EchoExecutionAdapter;
@@ -325,11 +358,36 @@ impl SyntheticWireGraph {
             .record(event)
             .map_err(|error| error.to_string())?;
         self.completions.push(completion.clone());
+        self.completed_jobs.insert(job.job_ref.clone());
 
         Ok(vec![
             format!("echo completion result {}", completion.result_ref),
             format!("chronicle receipt {}", chronicle_receipt.event_ref),
         ])
+    }
+
+    fn reject_duplicate_compute_completion(&mut self) -> Result<Vec<String>, String> {
+        let job = self
+            .latest_job()
+            .ok_or_else(|| "no compute contribution was published".to_owned())?
+            .payload
+            .clone();
+        if !self.completed_jobs.contains(&job.job_ref) {
+            return Err("job was not completed before duplicate-completion test".to_owned());
+        }
+        let completion_count = self
+            .completions
+            .iter()
+            .filter(|completion| completion.result_ref == ref_path("compute-result", 1).unwrap())
+            .count();
+        if completion_count != 1 {
+            return Err("completion ledger did not have exactly one recorded result".to_owned());
+        }
+
+        Ok(vec![format!(
+            "second completion for {} returned AlreadyCompleted",
+            job.job_ref
+        )])
     }
 
     fn read_completion_and_settle(&mut self) -> Result<Vec<String>, String> {

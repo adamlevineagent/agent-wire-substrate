@@ -82,7 +82,7 @@ mod tests {
         let report = run_layer3_single_graph_synthetic().unwrap();
 
         assert!(report.all_green());
-        assert_eq!(report.subtests.len(), 8);
+        assert_eq!(report.subtests.len(), 10);
         assert!(report
             .subtests
             .iter()
@@ -91,6 +91,10 @@ mod tests {
             .subtests
             .iter()
             .any(|step| step.name == "cloudflare-rotation-mid-flight"));
+        assert!(report
+            .subtests
+            .iter()
+            .any(|step| step.name == "duplicate-compute-claim-rejected"));
     }
 
     #[test]
@@ -98,7 +102,7 @@ mod tests {
         let report = run_layer4_two_graph_bridged_synthetic().unwrap();
 
         assert!(report.all_green());
-        assert_eq!(report.subtests.len(), 8);
+        assert_eq!(report.subtests.len(), 9);
         assert!(report
             .subtests
             .iter()
@@ -107,6 +111,10 @@ mod tests {
             .subtests
             .iter()
             .any(|step| step.name == "bridge-severed-graphs-independent"));
+        assert!(report
+            .subtests
+            .iter()
+            .any(|step| step.name == "reputation-snapshot-import-is-one-shot"));
     }
 
     #[test]

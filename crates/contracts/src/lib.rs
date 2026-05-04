@@ -6,6 +6,21 @@
 
 use serde::{Deserialize, Serialize};
 
+pub trait WireDto: private::Sealed {}
+
+mod private {
+    pub trait Sealed {}
+}
+
+macro_rules! impl_wire_dto {
+    ($($ty:ty),+ $(,)?) => {
+        $(
+            impl private::Sealed for $ty {}
+            impl WireDto for $ty {}
+        )+
+    };
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ContractVerb {
@@ -118,3 +133,15 @@ pub enum EventVisibilityDto {
     Circle,
     Private,
 }
+
+impl_wire_dto!(
+    HandlePathDto,
+    TunnelEndpointDto,
+    MoneyAmountDto,
+    HandleClaimDto,
+    PrivateAliasMappingDto,
+    PrivateGraphRegistrationDto,
+    MasterKeyRotationDto,
+    ReputationSnapshotDto,
+    EventEnvelopeDto,
+);

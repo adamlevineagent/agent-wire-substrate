@@ -39,7 +39,7 @@ impl Layer4SyntheticReport {
         output.push_str("This harness is deterministic and in-memory. It exercises cross-graph identity, mid-slug references, one-shot reputation snapshots, bridge economics, and firewall asymmetry without live LLM calls, live database access, deploy, live smoke, or npm publish.\n\n");
         output.push_str("## Result\n\n");
         output.push_str(if self.all_green() {
-            "All 8 Layer 4 sub-tests are green.\n\n"
+            "All 9 Layer 4 sub-tests are green.\n\n"
         } else {
             "One or more Layer 4 sub-tests failed; see reasons below.\n\n"
         });
@@ -102,6 +102,11 @@ pub fn run_layer4_two_graph_bridged_synthetic() -> Result<Layer4SyntheticReport,
         "reputation-snapshot-at-kitty-onboarding",
         "reputation firewall imports a one-shot mainnet snapshot",
         harness.reputation_snapshot_at_onboarding(),
+    );
+    report.record(
+        "reputation-snapshot-import-is-one-shot",
+        "reputation snapshots are signature-bound and cannot be overwritten",
+        harness.reputation_snapshot_import_is_one_shot(),
     );
     report.record(
         "mainnet-reputation-evolution-does-not-propagate",
@@ -266,10 +271,12 @@ impl TwoGraphHarness {
             .export_reputation_snapshot(
                 &self.identity.master_key,
                 ref_path("playful", "mainnet", 1).map_err(|error| error.to_string())?,
+                &self.signer,
             )
             .map_err(|error| error.to_string())?;
         self.kitty
-            .import_reputation_snapshot(&self.identity.master_key, snapshot.clone());
+            .import_reputation_snapshot(&self.identity.master_key, snapshot.clone(), &self.signer)
+            .map_err(|error| error.to_string())?;
         let imported = self
             .kitty
             .snapshot_score(&self.identity.master_key)
@@ -285,6 +292,55 @@ impl TwoGraphHarness {
                 snapshot.primitive.registry.as_str(),
                 snapshot.primitive.source_ref
             ),
+        ])
+    }
+
+    fn reputation_snapshot_import_is_one_shot(&mut self) -> Result<Vec<String>, String> {
+        self.mainnet.set_reputation(&self.identity.master_key, 860);
+        let duplicate = self
+            .mainnet
+            .export_reputation_snapshot(
+                &self.identity.master_key,
+                ref_path("playful", "mainnet", 2).map_err(|error| error.to_string())?,
+                &self.signer,
+            )
+            .map_err(|error| error.to_string())?;
+        let duplicate_import = self.kitty.import_reputation_snapshot(
+            &self.identity.master_key,
+            duplicate,
+            &self.signer,
+        );
+        if !matches!(duplicate_import, Err(ref error) if error == "SnapshotAlreadyImported") {
+            return Err("kitty accepted a second snapshot for the same master key".to_owned());
+        }
+        let imported = self
+            .kitty
+            .snapshot_score(&self.identity.master_key)
+            .ok_or_else(|| "kitty snapshot disappeared after duplicate import".to_owned())?;
+        if imported != 750 {
+            return Err("duplicate snapshot overwrote the original score".to_owned());
+        }
+
+        let mut tampered = self
+            .mainnet
+            .export_reputation_snapshot(
+                &self.identity.master_key,
+                ref_path("playful", "mainnet", 3).map_err(|error| error.to_string())?,
+                &self.signer,
+            )
+            .map_err(|error| error.to_string())?;
+        tampered.score = 9_999;
+        let tampered_import = SyntheticGraph::new("attacker", GraphKind::Sovereign)
+            .map_err(|error| error.to_string())?
+            .import_reputation_snapshot(&self.identity.master_key, tampered, &self.signer);
+        if !matches!(tampered_import, Err(ref error) if error == "SnapshotSignatureInvalid") {
+            return Err("tampered snapshot passed signature verification".to_owned());
+        }
+
+        Ok(vec![
+            "duplicate import returned SnapshotAlreadyImported".to_owned(),
+            format!("original kitty snapshot remained {imported}"),
+            "tampered snapshot failed statement-bound signature verification".to_owned(),
         ])
     }
 
@@ -531,11 +587,11 @@ impl SyntheticMasterAuthority {
 impl MasterSigner for SyntheticMasterAuthority {
     type Error = FoundationError;
 
-    fn sign<T: Serialize>(&self, _statement: &T) -> Result<MasterSignature, Self::Error> {
+    fn sign<T: Serialize>(&self, statement: &T) -> Result<MasterSignature, Self::Error> {
         Ok(MasterSignature {
             key_id: self.public_key.key_id.clone(),
             algorithm: self.public_key.algorithm,
-            bytes: vec![0xA5; 64],
+            bytes: statement_signature_bytes(&self.public_key, statement)?,
         })
     }
 }
@@ -546,7 +602,7 @@ impl MasterVerifier for SyntheticMasterAuthority {
     fn verify<T: Serialize>(
         &self,
         public_key: &MasterPublicKey,
-        _statement: &T,
+        statement: &T,
         signature: &MasterSignature,
     ) -> Result<(), Self::Error> {
         if public_key.key_id != signature.key_id || public_key.algorithm != signature.algorithm {
@@ -559,8 +615,40 @@ impl MasterVerifier for SyntheticMasterAuthority {
                 field: "master_signature",
             });
         }
+        if signature.bytes != statement_signature_bytes(public_key, statement)? {
+            return Err(FoundationError::InvalidFormat {
+                field: "master_signature",
+            });
+        }
         Ok(())
     }
+}
+
+fn statement_signature_bytes<T: Serialize>(
+    public_key: &MasterPublicKey,
+    statement: &T,
+) -> Result<Vec<u8>, FoundationError> {
+    let mut bytes = serde_json::to_vec(statement).map_err(|_| FoundationError::InvalidFormat {
+        field: "signed_statement",
+    })?;
+    bytes.extend_from_slice(public_key.key_id.as_str().as_bytes());
+    bytes.push(match public_key.algorithm {
+        SignatureAlgorithm::Ed25519 => 1,
+        SignatureAlgorithm::Secp256k1 => 2,
+    });
+    bytes.extend_from_slice(&public_key.bytes);
+
+    let mut acc = 0xA5A5_5A5A_D3C3_B2B2_u64;
+    for byte in bytes {
+        acc = acc.rotate_left(5) ^ u64::from(byte);
+        acc = acc.wrapping_mul(0x100_0000_01B3);
+    }
+
+    let mut signature = Vec::with_capacity(64);
+    for round in 0..8_u64 {
+        signature.extend_from_slice(&acc.wrapping_add(round).to_le_bytes());
+    }
+    Ok(signature)
 }
 
 #[derive(Debug, Clone)]
@@ -620,15 +708,25 @@ impl SyntheticGraph {
         &self,
         key: &MasterPublicKey,
         source_ref: CrossGraphRef,
+        signer: &impl MasterSigner<Error = FoundationError>,
     ) -> Result<SyntheticReputationSnapshot, FoundationError> {
+        let statement = ReputationSnapshotStatement {
+            namespace: self.namespace.clone(),
+            registry: self.reputation_registry.clone(),
+            source_ref: source_ref.clone(),
+            exported_at: OffsetDateTime::UNIX_EPOCH,
+            score: self.reputation_score(key),
+        };
+        let signature = signer.sign(&statement)?;
         Ok(SyntheticReputationSnapshot {
             primitive: ReputationSnapshot {
                 namespace: self.namespace.clone(),
                 registry: self.reputation_registry.clone(),
                 source_ref,
                 exported_at: OffsetDateTime::UNIX_EPOCH,
+                signature,
             },
-            score: self.reputation_score(key),
+            score: statement.score,
         })
     }
 
@@ -636,9 +734,17 @@ impl SyntheticGraph {
         &mut self,
         key: &MasterPublicKey,
         snapshot: SyntheticReputationSnapshot,
-    ) {
+        verifier: &impl MasterVerifier<Error = FoundationError>,
+    ) -> Result<(), String> {
+        if self.imported_snapshots.contains_key(key.key_id.as_str()) {
+            return Err("SnapshotAlreadyImported".to_owned());
+        }
+        verifier
+            .verify(key, &snapshot.statement(), &snapshot.primitive.signature)
+            .map_err(|_| "SnapshotSignatureInvalid".to_owned())?;
         self.imported_snapshots
             .insert(key.key_id.as_str().to_owned(), snapshot);
+        Ok(())
     }
 
     fn snapshot_score(&self, key: &MasterPublicKey) -> Option<i64> {
@@ -690,6 +796,27 @@ impl SyntheticGraph {
 #[derive(Debug, Clone)]
 struct SyntheticReputationSnapshot {
     primitive: ReputationSnapshot,
+    score: i64,
+}
+
+impl SyntheticReputationSnapshot {
+    fn statement(&self) -> ReputationSnapshotStatement {
+        ReputationSnapshotStatement {
+            namespace: self.primitive.namespace.clone(),
+            registry: self.primitive.registry.clone(),
+            source_ref: self.primitive.source_ref.clone(),
+            exported_at: self.primitive.exported_at,
+            score: self.score,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ReputationSnapshotStatement {
+    namespace: NamespaceId,
+    registry: ReputationRegistryId,
+    source_ref: CrossGraphRef,
+    exported_at: OffsetDateTime,
     score: i64,
 }
 
