@@ -1,4 +1,4 @@
-use agent_wire_node::{
+use agent_wire_substrate_node::{
     build_parity_demo, run_layer3_single_graph_synthetic, run_layer4_two_graph_bridged_synthetic,
     run_layer5_live_llm_compute_roundtrip, substrate_stack_name,
 };
@@ -6,10 +6,10 @@ use agent_wire_node::{
 fn main() {
     let command = std::env::args().nth(1);
     match command.as_deref() {
-        Some("parity-demo") => match build_parity_demo() {
+        Some("substrate-node-demo") => match build_parity_demo() {
             Ok(report) => print!("{}", report.to_markdown()),
             Err(error) => {
-                eprintln!("failed to build parity demo: {error}");
+                eprintln!("failed to build substrate node demo: {error}");
                 std::process::exit(1);
             }
         },
@@ -35,10 +35,10 @@ fn main() {
             }
         }
         Some("--help") | Some("-h") => {
-            println!("agent-wire-node");
+            println!("agent-wire-substrate-node");
             println!();
             println!("Commands:");
-            println!("  parity-demo         Run the substrate-tier dry-run parity demo");
+            println!("  substrate-node-demo         Run the substrate-tier dry-run parity demo");
             println!("  layer3-synthetic    Run Wave 2 Layer 3 single-graph synthetic validation");
             println!("  layer4-synthetic    Run Wave 2 Layer 4 two-graph bridged validation");
             println!("  layer5-live-llm     Run Wave 2 Layer 5 live LLM compute roundtrip");

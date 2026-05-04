@@ -8,4 +8,4 @@ if [[ -n "${LAYER5_ENV_FILE:-}" ]]; then
   set +a
 fi
 
-cargo run -p agent-wire-node --bin agent-wire-node -- layer5-live-llm
+cargo run -p agent-wire-substrate-node --bin agent-wire-substrate-node -- layer5-live-llm

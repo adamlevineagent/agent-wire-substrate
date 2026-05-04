@@ -14,7 +14,7 @@ pub struct ParityDemoReport {
 
 impl ParityDemoReport {
     pub fn to_markdown(&self) -> String {
-        let mut output = String::from("# Agent Wire Node 2.0 Parity Demo\n\n");
+        let mut output = String::from("# Agent Wire Substrate Node 2.0 Parity Demo\n\n");
         output.push_str("This dry-run uses only substrate-tier crates and does not import pyramid-app code.\n\n");
         output.push_str("## Steps\n\n");
         for step in &self.steps {

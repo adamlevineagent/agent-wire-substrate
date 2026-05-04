@@ -1,7 +1,7 @@
 # Layer 3 Single-Graph Synthetic Validation
 
 Wave 2 Layer 3 adds a deterministic single-graph synthetic validation harness for
-`agent-wire-substrate`. It runs inside the `agent-wire-node` crate and exercises the substrate-tier
+`agent-wire-substrate`. It runs inside the `agent-wire-substrate-node` crate and exercises the substrate-tier
 contracts, traits, and node composition without live LLM calls, live database access, deploy, live
 smoke, or npm publish.
 

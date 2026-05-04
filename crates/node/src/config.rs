@@ -50,7 +50,7 @@ impl NodeConfig {
                 config_dir: "~/.wire-node/config".to_owned(),
                 state_dir: "~/.wire-node/state".to_owned(),
                 contribution_cache_dir: "~/.wire-node/contributions".to_owned(),
-                key_store_label: "agent-wire-node-v2".to_owned(),
+                key_store_label: "agent-wire-substrate-node-v2".to_owned(),
             },
             surfaces: OperatorApiSurface::all_enabled(EndpointUrl::parse("http://127.0.0.1:8787")?),
             sandbox: SandboxPolicy {

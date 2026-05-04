@@ -2,7 +2,7 @@
 
 The substrate-tier of the Wire: foundation crate, transport drivers, and the
 three markets (compute, storage, relay), packaged as a Cargo workspace and
-composed by the `agent-wire-node` v2 binary.
+composed by the `agent-wire-substrate-node` v2 binary.
 
 This is the chassis. Verticals such as mainnet Wire, kitty-wire, and future
 Sovereign Graphs deploy on top of it. Pyramid-app-v2 (Track B) eventually
@@ -20,7 +20,7 @@ migrates onto it.
 | `compute-market` | Neutral compute-market contracts (`ComputeJobEnvelope`, `ModelInvocation`, `ExecutionAdapter`, `DeliveryPolicy`, `EventSink`, `ChronicleSink`, `QueueAdmission`, `DispatchPolicy`, `ComputeJobContract`) plus provider/requester scaffolds |
 | `storage-market` | Storage-market trait scaffold (greenfield) |
 | `relay-market` | Relay-market trait scaffold (greenfield) |
-| `node` | Composes foundation, contracts, transport-cloudflare, and all three markets; produces the `agent-wire-node` binary; ships `scripts/parity-demo.sh` |
+| `node` | Composes foundation, contracts, transport-cloudflare, and all three markets; produces the `agent-wire-substrate-node` binary; ships `scripts/substrate-node-demo.sh` |
 
 ## Architectural Commitments
 
@@ -73,10 +73,10 @@ validation is Wave 2 work.
 ```sh
 git clone https://github.com/adamlevineagent/agent-wire-substrate
 cd agent-wire-substrate
-cargo build --release          # builds the agent-wire-node binary
+cargo build --release          # builds the agent-wire-substrate-node binary
 cargo fmt --check              # workspace formatting clean
 cargo test --workspace         # all unit and integration tests pass
-./scripts/parity-demo.sh       # dry-run substrate behavior set
+./scripts/substrate-node-demo.sh       # dry-run substrate behavior set
 ```
 
 ## Layout
@@ -93,9 +93,9 @@ agent-wire-substrate/
 |   `-- node/                   # composition crate, binary, parity demo
 |-- docs/
 |   |-- stages/                 # per-stage decision docs
-|   `-- parity-demo.md          # what the dry-run demo proves
+|   `-- substrate-node-demo.md          # what the dry-run demo proves
 |-- scripts/
-|   `-- parity-demo.sh          # end-to-end substrate dry-run
+|   `-- substrate-node-demo.sh          # end-to-end substrate dry-run
 `-- Cargo.toml                  # workspace manifest
 ```
 

@@ -17,8 +17,8 @@ fn foundation_has_no_forbidden_boundary_references() {
         "storage_market",
         "relay-market",
         "relay_market",
-        "agent-wire-node",
-        "agent_wire_node",
+        "agent-wire-substrate-node",
+        "agent_wire_substrate_node",
     ];
 
     let mut violations = Vec::new();
