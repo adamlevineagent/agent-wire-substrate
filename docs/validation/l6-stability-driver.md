@@ -8,9 +8,15 @@ The L6 driver is the substrate-side harness for long-running reference-client st
 - Exercise Cloudflare tunnel lifecycle by creating a fresh provider tunnel per cycle.
 - Record per-cycle job and settlement identifiers.
 - Track cycle latency summaries and process high-water RSS snapshots via `getrusage`.
+- Run read-only observability scans over green cycles for leaked claims,
+  orphan settlements, duplicate settlements, settlement-shape drift, throughput,
+  and RSS deltas.
 - Fail closed on the first unsettled, uncompleted, or otherwise red D3 cycle.
 
-Newman owns the failure-injection and observability lane. This driver exposes the stable substrate loop and the per-cycle timing/settlement record Newman can coordinate against.
+Newman's observability and failure-injection lane is integrated as an additive
+seam. The stability driver now prints the observability report after each run,
+and `l6-failure-injection` exercises the substrate recovery policy across the
+five kill-points.
 
 ## Environment
 
@@ -32,6 +38,12 @@ L6-specific controls:
 L6_ENV_FILE="/path/to/.env" L6_CYCLES=12 L6_CYCLE_DELAY_SECS=30 scripts/l6-stability-driver.sh
 ```
 
+Run deterministic recovery-policy kill-point scenarios:
+
+```bash
+scripts/l6-failure-injection.sh
+```
+
 ## Passing Criteria
 
 For the driver harness itself:
@@ -39,6 +51,17 @@ For the driver harness itself:
 1. Every requested cycle passes D3.
 2. Every completed cycle has a settled `wire_settlements` row.
 3. The report includes p50/p99 cycle latency and RSS snapshots.
-4. The process exits non-zero on the first failed cycle.
+4. The observability report has `all_invariants_held=true`.
+5. The process exits non-zero on the first failed cycle or invariant violation.
+
+For recovery-policy injection:
+
+1. Before-provider-claim recovery produces exactly one preserved claim.
+2. After-provider-claim recovery rejects duplicate claims.
+3. After-claim-before-completion recovery allows one completion and rejects
+   duplicate completions.
+4. After-settlement recovery rejects duplicate settlement.
+5. During-tunnel-rotation recovery rejects a duplicate claim through the
+   rotated tunnel.
 
 The full L6 mission remains the long-running 48-72 hour evidence window plus Newman-coordinated failure injection for provider/requester/tunnel kills.

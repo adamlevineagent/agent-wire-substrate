@@ -10,6 +10,7 @@ pub mod contribution_sync;
 pub mod d3_live_compute_settlement;
 pub mod l6_failure_injection;
 pub mod l6_observability;
+pub mod l6_recovery;
 pub mod l6_stability_driver;
 pub mod layer3_synthetic;
 pub mod layer4_synthetic;
@@ -29,13 +30,14 @@ pub use d3_live_compute_settlement::{
     run_d3_live_compute_settlement, D3LiveComputeSettlementReport, D3Status, D3Subtest,
 };
 pub use l6_failure_injection::{
-    run_failure_injection_scenarios, InjectionReport, InjectionScenarioResult, InjectionState,
-    KillPoint, RecoveryPolicy, WriteOncePolicy,
+    run_failure_injection_scenarios, run_failure_injection_scenarios_with_policy, InjectionReport,
+    InjectionScenarioResult, InjectionState, KillPoint, RecoveryPolicy, WriteOncePolicy,
 };
 pub use l6_observability::{
     observe_l6_stability, L6CycleObservability, L6ObservabilityReport, ObservabilityFinding,
     ObservabilityKind, ObservabilityScan,
 };
+pub use l6_recovery::{run_l6_recovery_injection_scenarios, SubstrateRecoveryPolicy};
 pub use l6_stability_driver::{run_l6_stability_driver, L6CycleResult, L6StabilityReport};
 pub use layer3_synthetic::{
     run_layer3_single_graph_synthetic, Layer3Status, Layer3Subtest, Layer3SyntheticReport,

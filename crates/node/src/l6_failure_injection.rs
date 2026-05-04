@@ -192,12 +192,16 @@ impl InjectionState {
 /// Run all kill-point scenarios. Each uses an isolated `InjectionState`.
 pub fn run_failure_injection_scenarios() -> InjectionReport {
     let policy = WriteOncePolicy;
+    run_failure_injection_scenarios_with_policy(&policy)
+}
+
+pub fn run_failure_injection_scenarios_with_policy(policy: &dyn RecoveryPolicy) -> InjectionReport {
     let scenarios = vec![
-        before_provider_claim_scenario(&policy),
-        after_provider_claim_scenario(&policy),
-        after_claim_before_completion_scenario(&policy),
-        after_settlement_scenario(&policy),
-        during_tunnel_rotation_scenario(&policy),
+        before_provider_claim_scenario(policy),
+        after_provider_claim_scenario(policy),
+        after_claim_before_completion_scenario(policy),
+        after_settlement_scenario(policy),
+        during_tunnel_rotation_scenario(policy),
     ];
     InjectionReport { scenarios }
 }
@@ -207,7 +211,7 @@ pub fn run_failure_injection_scenarios() -> InjectionReport {
 /// the assertion is that exactly one claim ends up recorded.
 fn before_provider_claim_scenario(policy: &dyn RecoveryPolicy) -> InjectionScenarioResult {
     let mut state = InjectionState::new("https://tunnel-a.example");
-    let job = "job/before-claim/1";
+    let job = "playful/123/l6-before-claim/1";
     // Provider boots; was about to claim but is killed; on respawn, claims
     // the job. Only one claim should be present.
     let res = state.claim(policy, job);
@@ -219,7 +223,10 @@ fn before_provider_claim_scenario(policy: &dyn RecoveryPolicy) -> InjectionScena
         detail: if passed {
             format!("claimed jobs: {:?}", state.claimed)
         } else {
-            format!("unexpected state after recovery: claim_result={res:?} claimed={:?}", state.claimed)
+            format!(
+                "unexpected state after recovery: claim_result={res:?} claimed={:?}",
+                state.claimed
+            )
         },
     }
 }
@@ -229,17 +236,16 @@ fn before_provider_claim_scenario(policy: &dyn RecoveryPolicy) -> InjectionScena
 /// rejected; the original claim is preserved.
 fn after_provider_claim_scenario(policy: &dyn RecoveryPolicy) -> InjectionScenarioResult {
     let mut state = InjectionState::new("https://tunnel-a.example");
-    let job = "job/after-claim/1";
+    let job = "playful/123/l6-after-claim/1";
     state.claim(policy, job).expect("first claim must succeed");
     // Provider killed. Respawn attempts re-claim.
     let respawn_claim = state.claim(policy, job);
-    let passed = respawn_claim.is_err()
-        && state.claimed.len() == 1
-        && state.claimed.contains(job);
+    let passed = respawn_claim.is_err() && state.claimed.len() == 1 && state.claimed.contains(job);
     InjectionScenarioResult {
         kill_point: KillPoint::AfterProviderClaim,
         passed,
-        assertion: "respawn re-claim of same job_ref is rejected; original claim preserved".to_owned(),
+        assertion: "respawn re-claim of same job_ref is rejected; original claim preserved"
+            .to_owned(),
         detail: if passed {
             format!(
                 "respawn claim correctly rejected: {}",
@@ -259,19 +265,19 @@ fn after_provider_claim_scenario(policy: &dyn RecoveryPolicy) -> InjectionScenar
 /// completion attempt must be rejected.
 fn after_claim_before_completion_scenario(policy: &dyn RecoveryPolicy) -> InjectionScenarioResult {
     let mut state = InjectionState::new("https://tunnel-a.example");
-    let job = "job/before-completion/1";
+    let job = "playful/123/l6-before-completion/1";
     state.claim(policy, job).expect("claim must succeed");
     // Provider killed mid-completion. Respawn completes.
     let first_completion = state.complete(policy, job);
     // Network retry / replay: another completion attempt for same job.
     let second_completion = state.complete(policy, job);
-    let passed = first_completion.is_ok()
-        && second_completion.is_err()
-        && state.completed.len() == 1;
+    let passed =
+        first_completion.is_ok() && second_completion.is_err() && state.completed.len() == 1;
     InjectionScenarioResult {
         kill_point: KillPoint::AfterClaimBeforeCompletion,
         passed,
-        assertion: "first post-recovery completion succeeds; duplicate completion is rejected".to_owned(),
+        assertion: "first post-recovery completion succeeds; duplicate completion is rejected"
+            .to_owned(),
         detail: if passed {
             format!(
                 "first_completion=ok, retry rejected: {}",
@@ -290,10 +296,14 @@ fn after_claim_before_completion_scenario(policy: &dyn RecoveryPolicy) -> Inject
 /// must already be recorded; a second settlement attempt is rejected.
 fn after_settlement_scenario(policy: &dyn RecoveryPolicy) -> InjectionScenarioResult {
     let mut state = InjectionState::new("https://tunnel-a.example");
-    let job = "job/after-settlement/1";
+    let job = "playful/123/l6-after-settlement/1";
     state.claim(policy, job).expect("claim must succeed");
-    state.complete(policy, job).expect("completion must succeed");
-    state.settle(policy, job).expect("first settlement must succeed");
+    state
+        .complete(policy, job)
+        .expect("completion must succeed");
+    state
+        .settle(policy, job)
+        .expect("first settlement must succeed");
     // Requester killed; respawn attempts to re-issue settlement (e.g., a
     // network retry of the settlement RPC).
     let retry_settle = state.settle(policy, job);
@@ -301,7 +311,9 @@ fn after_settlement_scenario(policy: &dyn RecoveryPolicy) -> InjectionScenarioRe
     InjectionScenarioResult {
         kill_point: KillPoint::AfterSettlement,
         passed,
-        assertion: "settlement retry after requester respawn is rejected; settled set is single-shot".to_owned(),
+        assertion:
+            "settlement retry after requester respawn is rejected; settled set is single-shot"
+                .to_owned(),
         detail: if passed {
             format!(
                 "retry settlement correctly rejected: {}",
@@ -321,21 +333,25 @@ fn after_settlement_scenario(policy: &dyn RecoveryPolicy) -> InjectionScenarioRe
 /// idempotency.
 fn during_tunnel_rotation_scenario(policy: &dyn RecoveryPolicy) -> InjectionScenarioResult {
     let mut state = InjectionState::new("https://tunnel-a.example");
-    let job = "job/rotation/1";
-    state.claim(policy, job).expect("claim through tunnel A must succeed");
+    let job = "playful/123/l6-rotation/1";
+    state
+        .claim(policy, job)
+        .expect("claim through tunnel A must succeed");
     state.rotate_tunnel("https://tunnel-b.example");
     // Adversary submits duplicate through rotated tunnel. Idempotency must
     // hold across rotation.
     let post_rotation_claim = state.claim(policy, job);
     let url_changed = state.tunnel_url == "https://tunnel-b.example"
-        && state.rotated_tunnel_urls.contains(&"https://tunnel-a.example".to_owned());
-    let passed = post_rotation_claim.is_err()
-        && state.claimed.len() == 1
-        && url_changed;
+        && state
+            .rotated_tunnel_urls
+            .contains(&"https://tunnel-a.example".to_owned());
+    let passed = post_rotation_claim.is_err() && state.claimed.len() == 1 && url_changed;
     InjectionScenarioResult {
         kill_point: KillPoint::DuringTunnelRotation,
         passed,
-        assertion: "duplicate claim via rotated tunnel is rejected; rotation does not relax idempotency".to_owned(),
+        assertion:
+            "duplicate claim via rotated tunnel is rejected; rotation does not relax idempotency"
+                .to_owned(),
         detail: if passed {
             format!(
                 "post-rotation duplicate claim rejected: {}; tunnel A->B rotation recorded",
@@ -399,10 +415,22 @@ mod tests {
         let s_completion = after_claim_before_completion_scenario(&policy);
         let s_settlement = after_settlement_scenario(&policy);
         let s_rotation = during_tunnel_rotation_scenario(&policy);
-        assert!(!s_after_claim.passed, "AllowAll should fail double-claim assertion");
-        assert!(!s_completion.passed, "AllowAll should fail double-completion assertion");
-        assert!(!s_settlement.passed, "AllowAll should fail double-settlement assertion");
-        assert!(!s_rotation.passed, "AllowAll should fail rotation idempotency assertion");
+        assert!(
+            !s_after_claim.passed,
+            "AllowAll should fail double-claim assertion"
+        );
+        assert!(
+            !s_completion.passed,
+            "AllowAll should fail double-completion assertion"
+        );
+        assert!(
+            !s_settlement.passed,
+            "AllowAll should fail double-settlement assertion"
+        );
+        assert!(
+            !s_rotation.passed,
+            "AllowAll should fail rotation idempotency assertion"
+        );
     }
 
     #[test]

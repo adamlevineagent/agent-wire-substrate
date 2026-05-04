@@ -1,5 +1,6 @@
 use agent_wire_substrate_node::{
-    build_parity_demo, run_d3_live_compute_settlement, run_l6_stability_driver,
+    build_parity_demo, observe_l6_stability, run_d3_live_compute_settlement,
+    run_l6_recovery_injection_scenarios, run_l6_stability_driver,
     run_layer3_single_graph_synthetic, run_layer4_two_graph_bridged_synthetic,
     run_layer5_live_llm_compute_roundtrip, run_live_contribution_sync, run_mainnet_auth,
     substrate_stack_name,
@@ -46,7 +47,16 @@ fn main() {
         Some("l6-stability-driver") => {
             let report = run_l6_stability_driver();
             print!("{}", report.to_markdown());
-            if !report.all_green() {
+            let observability = observe_l6_stability(&report);
+            print!("{}", observability.to_markdown());
+            if !report.all_green() || !observability.all_invariants_held {
+                std::process::exit(1);
+            }
+        }
+        Some("l6-failure-injection") => {
+            let report = run_l6_recovery_injection_scenarios();
+            print!("{}", report.to_markdown());
+            if !report.all_passed() {
                 std::process::exit(1);
             }
         }
@@ -86,6 +96,7 @@ fn main() {
             println!(
                 "  l6-stability-driver          Run repeated D3 cycles for L6 stability validation"
             );
+            println!("  l6-failure-injection         Run L6 recovery policy kill-point scenarios");
         }
         _ => println!("{}", substrate_stack_name()),
     }

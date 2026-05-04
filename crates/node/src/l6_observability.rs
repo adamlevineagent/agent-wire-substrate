@@ -113,11 +113,7 @@ impl L6ObservabilityReport {
 /// L6 driver's per-cycle hook OR after-the-fact analysis of a JSON-dumped
 /// report from a long run.
 pub fn observe_l6_stability(report: &L6StabilityReport) -> L6ObservabilityReport {
-    let cycles: Vec<_> = report
-        .cycles
-        .iter()
-        .map(observe_single_cycle)
-        .collect();
+    let cycles: Vec<_> = report.cycles.iter().map(observe_single_cycle).collect();
 
     let mut all_held = true;
     for cycle in &cycles {
@@ -263,9 +259,7 @@ fn leaked_claim_violations(cycle: &L6CycleResult) -> Vec<String> {
         );
     }
     if cycle.provider_node_id.is_none() {
-        out.push(
-            "green cycle has no provider_node_id; provider attribution is missing".to_owned(),
-        );
+        out.push("green cycle has no provider_node_id; provider attribution is missing".to_owned());
     }
     if cycle.requester_node_id.is_none() {
         out.push(
@@ -432,8 +426,7 @@ mod tests {
         assert!(!obs.all_invariants_held);
         let findings = &obs.cycles[0].findings;
         assert!(findings.iter().any(|f| {
-            f.scan == ObservabilityScan::OrphanSettlement
-                && f.kind == ObservabilityKind::Violation
+            f.scan == ObservabilityScan::OrphanSettlement && f.kind == ObservabilityKind::Violation
         }));
         // Also flagged by leak scan because job_id is none.
         assert!(findings.iter().any(|f| {
@@ -497,7 +490,10 @@ mod tests {
         // A failed cycle is not a leak; missing fields are expected.
         assert!(obs.all_invariants_held);
         for finding in &obs.cycles[0].findings {
-            assert!(matches!(finding.kind, ObservabilityKind::SkippedCycleFailed));
+            assert!(matches!(
+                finding.kind,
+                ObservabilityKind::SkippedCycleFailed
+            ));
         }
     }
 
