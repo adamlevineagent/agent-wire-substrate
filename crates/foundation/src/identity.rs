@@ -1,19 +1,22 @@
-use agent_wire_contracts::{
-    AliasVisibilityDto, HandleClaimDto, MasterKeyRotationDto, PrivateAliasMappingDto,
-    PrivateGraphRegistrationDto, ReputationSnapshotDto,
-};
 use serde::{Deserialize, Serialize};
+use time::OffsetDateTime;
 
-use crate::money::CreditAmount;
-use crate::refs::GraphSlug;
-use crate::transport::EndpointUrl;
+use crate::namespace::{GraphKind, GraphSlug, NamespaceId, ReputationRegistryId};
+use crate::refs::{CrossGraphRef, HandlePath};
+use crate::FoundationError;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Handle(String);
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct MasterKeyId(String);
 
-impl Handle {
-    pub fn new(value: impl Into<String>) -> Self {
-        Self(value.into())
+impl MasterKeyId {
+    pub fn new(value: impl Into<String>) -> Result<Self, FoundationError> {
+        let value = value.into();
+        if value.trim().is_empty() {
+            return Err(FoundationError::EmptyField {
+                field: "master_key_id",
+            });
+        }
+        Ok(Self(value))
     }
 
     pub fn as_str(&self) -> &str {
@@ -21,24 +24,81 @@ impl Handle {
     }
 }
 
-impl From<String> for Handle {
-    fn from(value: String) -> Self {
-        Self::new(value)
-    }
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct MasterPublicKey {
+    pub key_id: MasterKeyId,
+    pub algorithm: SignatureAlgorithm,
+    pub bytes: Vec<u8>,
 }
-
-impl From<Handle> for String {
-    fn from(value: Handle) -> Self {
-        value.0
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MasterPublicKey(String);
 
 impl MasterPublicKey {
-    pub fn new(value: impl Into<String>) -> Self {
-        Self(value.into())
+    pub fn new(
+        key_id: MasterKeyId,
+        algorithm: SignatureAlgorithm,
+        bytes: Vec<u8>,
+    ) -> Result<Self, FoundationError> {
+        if bytes.is_empty() {
+            return Err(FoundationError::EmptyField {
+                field: "master_public_key",
+            });
+        }
+        Ok(Self {
+            key_id,
+            algorithm,
+            bytes,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct MasterSignature {
+    pub key_id: MasterKeyId,
+    pub algorithm: SignatureAlgorithm,
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum SignatureAlgorithm {
+    Ed25519,
+    Secp256k1,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SignedStatement<T> {
+    pub statement: T,
+    pub signed_at: OffsetDateTime,
+    pub signature: MasterSignature,
+}
+
+pub trait MasterSigner {
+    type Error;
+
+    fn sign<T: Serialize>(&self, statement: &T) -> Result<MasterSignature, Self::Error>;
+}
+
+pub trait MasterVerifier {
+    type Error;
+
+    fn verify<T: Serialize>(
+        &self,
+        public_key: &MasterPublicKey,
+        statement: &T,
+        signature: &MasterSignature,
+    ) -> Result<(), Self::Error>;
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OperatorEmail(String);
+
+impl OperatorEmail {
+    pub fn new(value: impl Into<String>) -> Result<Self, FoundationError> {
+        let value = value.into();
+        if !value.contains('@') {
+            return Err(FoundationError::InvalidFormat {
+                field: "operator_email",
+            });
+        }
+        Ok(Self(value))
     }
 
     pub fn as_str(&self) -> &str {
@@ -46,233 +106,63 @@ impl MasterPublicKey {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Signature(String);
-
-impl Signature {
-    pub fn new(value: impl Into<String>) -> Self {
-        Self(value.into())
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EmailAttestation(String);
-
-impl EmailAttestation {
-    pub fn new(value: impl Into<String>) -> Self {
-        Self(value.into())
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HandleClaim {
-    pub handle: Handle,
-    pub master_public_key: MasterPublicKey,
-    pub claimed_at_wt: String,
-    pub signature: Signature,
+    pub handle: HandlePath,
+    pub namespace: NamespaceId,
+    pub master_key: MasterPublicKey,
+    pub operator_email: Option<OperatorEmail>,
+    pub issued_at: OffsetDateTime,
 }
 
-impl From<HandleClaimDto> for HandleClaim {
-    fn from(value: HandleClaimDto) -> Self {
-        Self {
-            handle: Handle::new(value.handle),
-            master_public_key: MasterPublicKey::new(value.master_public_key),
-            claimed_at_wt: value.claimed_at_wt,
-            signature: Signature::new(value.signature),
-        }
-    }
-}
-
-impl From<HandleClaim> for HandleClaimDto {
-    fn from(value: HandleClaim) -> Self {
-        Self {
-            handle: value.handle.0,
-            master_public_key: value.master_public_key.0,
-            claimed_at_wt: value.claimed_at_wt,
-            signature: value.signature.0,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum AliasVisibility {
-    Public,
-    Scoped,
-}
-
-impl From<AliasVisibilityDto> for AliasVisibility {
-    fn from(value: AliasVisibilityDto) -> Self {
-        match value {
-            AliasVisibilityDto::Public => Self::Public,
-            AliasVisibilityDto::Scoped => Self::Scoped,
-        }
-    }
-}
-
-impl From<AliasVisibility> for AliasVisibilityDto {
-    fn from(value: AliasVisibility) -> Self {
-        match value {
-            AliasVisibility::Public => Self::Public,
-            AliasVisibility::Scoped => Self::Scoped,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PrivateAliasMapping {
-    pub graph_slug: GraphSlug,
-    pub alias_handle: Handle,
-    pub mainnet_handle: Handle,
-    pub master_public_key: MasterPublicKey,
-    pub visibility: AliasVisibility,
-    pub signature: Signature,
+    pub private_alias: HandlePath,
+    pub public_handle: Option<HandlePath>,
+    pub namespace: NamespaceId,
+    pub signed_ref: CrossGraphRef,
 }
 
-impl From<PrivateAliasMappingDto> for PrivateAliasMapping {
-    fn from(value: PrivateAliasMappingDto) -> Self {
-        Self {
-            graph_slug: GraphSlug::new(value.graph_slug),
-            alias_handle: Handle::new(value.alias_handle),
-            mainnet_handle: Handle::new(value.mainnet_handle),
-            master_public_key: MasterPublicKey::new(value.master_public_key),
-            visibility: value.visibility.into(),
-            signature: Signature::new(value.signature),
-        }
-    }
-}
-
-impl From<PrivateAliasMapping> for PrivateAliasMappingDto {
-    fn from(value: PrivateAliasMapping) -> Self {
-        Self {
-            graph_slug: value.graph_slug.into_inner(),
-            alias_handle: value.alias_handle.0,
-            mainnet_handle: value.mainnet_handle.0,
-            master_public_key: value.master_public_key.0,
-            visibility: value.visibility.into(),
-            signature: value.signature.0,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PrivateGraphRegistration {
-    pub slug: GraphSlug,
-    pub operator_handle: Handle,
-    pub endpoint: EndpointUrl,
-    pub annual_renewal: CreditAmount,
-    pub grace_days: u16,
-    pub competitive_bidding: bool,
-    pub signature: Signature,
-}
-
-impl PrivateGraphRegistration {
-    pub fn no_competitive_bidding(
-        slug: GraphSlug,
-        operator_handle: Handle,
-        endpoint: EndpointUrl,
-    ) -> Self {
-        Self {
-            slug,
-            operator_handle,
-            endpoint,
-            annual_renewal: CreditAmount::ZERO,
-            grace_days: 45,
-            competitive_bidding: false,
-            signature: Signature::new(""),
-        }
-    }
-}
-
-impl From<PrivateGraphRegistrationDto> for PrivateGraphRegistration {
-    fn from(value: PrivateGraphRegistrationDto) -> Self {
-        Self {
-            slug: GraphSlug::new(value.slug),
-            operator_handle: Handle::new(value.operator_handle),
-            endpoint: EndpointUrl::new(value.endpoint),
-            annual_renewal: CreditAmount::new(value.annual_renewal_credits),
-            grace_days: value.grace_days,
-            competitive_bidding: value.competitive_bidding,
-            signature: Signature::new(value.signature),
-        }
-    }
-}
-
-impl From<PrivateGraphRegistration> for PrivateGraphRegistrationDto {
-    fn from(value: PrivateGraphRegistration) -> Self {
-        Self {
-            slug: value.slug.into_inner(),
-            operator_handle: value.operator_handle.0,
-            endpoint: value.endpoint.into_inner(),
-            annual_renewal_credits: value.annual_renewal.as_credits(),
-            grace_days: value.grace_days,
-            competitive_bidding: value.competitive_bidding,
-            signature: value.signature.0,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MasterKeyRotation {
-    pub operator_email: String,
-    pub old_master_public_key: MasterPublicKey,
-    pub new_master_public_key: MasterPublicKey,
-    pub email_attestation: EmailAttestation,
-    pub rotated_at_wt: String,
-}
-
-impl From<MasterKeyRotationDto> for MasterKeyRotation {
-    fn from(value: MasterKeyRotationDto) -> Self {
-        Self {
-            operator_email: value.operator_email,
-            old_master_public_key: MasterPublicKey::new(value.old_master_public_key),
-            new_master_public_key: MasterPublicKey::new(value.new_master_public_key),
-            email_attestation: EmailAttestation::new(value.email_attestation),
-            rotated_at_wt: value.rotated_at_wt,
-        }
-    }
-}
-
-impl From<MasterKeyRotation> for MasterKeyRotationDto {
-    fn from(value: MasterKeyRotation) -> Self {
-        Self {
-            operator_email: value.operator_email,
-            old_master_public_key: value.old_master_public_key.0,
-            new_master_public_key: value.new_master_public_key.0,
-            email_attestation: value.email_attestation.0,
-            rotated_at_wt: value.rotated_at_wt,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ReputationSnapshot {
+    pub namespace: NamespaceId,
     pub graph_slug: GraphSlug,
-    pub master_public_key: MasterPublicKey,
-    pub score: i64,
-    pub snapshot_at_wt: String,
-    pub signature: Signature,
+    pub graph_kind: GraphKind,
+    pub master_key: MasterPublicKey,
+    pub reputation_registry: Option<ReputationRegistryId>,
+    pub registered_at: OffsetDateTime,
 }
 
-impl From<ReputationSnapshotDto> for ReputationSnapshot {
-    fn from(value: ReputationSnapshotDto) -> Self {
-        Self {
-            graph_slug: GraphSlug::new(value.graph_slug),
-            master_public_key: MasterPublicKey::new(value.master_public_key),
-            score: value.score,
-            snapshot_at_wt: value.snapshot_at_wt,
-            signature: Signature::new(value.signature),
-        }
-    }
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MasterKeyRotation {
+    pub namespace: NamespaceId,
+    pub previous_key: MasterKeyId,
+    pub next_key: MasterPublicKey,
+    pub effective_at: OffsetDateTime,
+    pub proof_ref: CrossGraphRef,
 }
 
-impl From<ReputationSnapshot> for ReputationSnapshotDto {
-    fn from(value: ReputationSnapshot) -> Self {
-        Self {
-            graph_slug: value.graph_slug.into_inner(),
-            master_public_key: value.master_public_key.0,
-            score: value.score,
-            snapshot_at_wt: value.snapshot_at_wt,
-            signature: value.signature.0,
-        }
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReputationSnapshot {
+    pub namespace: NamespaceId,
+    pub registry: ReputationRegistryId,
+    pub source_ref: CrossGraphRef,
+    pub exported_at: OffsetDateTime,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn master_public_key_requires_bytes() {
+        let key_id = MasterKeyId::new("primary").unwrap();
+
+        assert_eq!(
+            MasterPublicKey::new(key_id, SignatureAlgorithm::Ed25519, vec![]),
+            Err(FoundationError::EmptyField {
+                field: "master_public_key"
+            })
+        );
     }
 }

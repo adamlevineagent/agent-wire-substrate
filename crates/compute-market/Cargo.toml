@@ -7,5 +7,6 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+agent-wire-contracts.workspace = true
 agent-wire-foundation.workspace = true
 serde.workspace = true
