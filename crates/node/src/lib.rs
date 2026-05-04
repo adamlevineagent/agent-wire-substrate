@@ -6,6 +6,7 @@
 
 pub mod boot;
 pub mod config;
+pub mod contribution_sync;
 pub mod layer3_synthetic;
 pub mod layer4_synthetic;
 pub mod layer5_live_llm;
@@ -16,6 +17,10 @@ pub mod server;
 
 pub use boot::{compose_substrate_node, MarketComposition, NodeRuntime};
 pub use config::{LocalPersistence, NodeConfig, NodeKeys, OptInPolicy};
+pub use contribution_sync::{
+    run_live_contribution_sync, ContributionSyncItem, ContributionSyncReport,
+    ContributionSyncStatus, ContributionSyncSubtest,
+};
 pub use layer3_synthetic::{
     run_layer3_single_graph_synthetic, Layer3Status, Layer3Subtest, Layer3SyntheticReport,
 };

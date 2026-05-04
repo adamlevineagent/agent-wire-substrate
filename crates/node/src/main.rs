@@ -1,6 +1,7 @@
 use agent_wire_substrate_node::{
     build_parity_demo, run_layer3_single_graph_synthetic, run_layer4_two_graph_bridged_synthetic,
-    run_layer5_live_llm_compute_roundtrip, run_mainnet_auth, substrate_stack_name,
+    run_layer5_live_llm_compute_roundtrip, run_live_contribution_sync, run_mainnet_auth,
+    substrate_stack_name,
 };
 
 fn main() {
@@ -41,12 +42,22 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        Some("contribution-sync") => {
+            let report = run_live_contribution_sync();
+            print!("{}", report.to_markdown());
+            if !report.all_green() {
+                std::process::exit(1);
+            }
+        }
         Some("--help") | Some("-h") => {
             println!("agent-wire-substrate-node");
             println!();
             println!("Commands:");
             println!("  substrate-node-demo         Run the substrate-tier dry-run parity demo");
             println!("  auth                         Validate and persist mainnet auth state");
+            println!(
+                "  contribution-sync            Publish and read back a live Wire contribution"
+            );
             println!("  layer3-synthetic             Run Wave 2 Layer 3 single-graph synthetic validation");
             println!(
                 "  layer4-synthetic             Run Wave 2 Layer 4 two-graph bridged validation"

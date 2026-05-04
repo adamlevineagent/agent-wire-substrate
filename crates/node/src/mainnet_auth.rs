@@ -103,6 +103,14 @@ pub struct MainnetIdentity {
     pub agent_id: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PersistedMainnetCredential {
+    pub(crate) endpoint: String,
+    pub(crate) api_token: String,
+    pub(crate) identity: MainnetIdentity,
+    pub(crate) state_path: PathBuf,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MainnetAuthSubtest {
     pub name: String,
@@ -191,6 +199,50 @@ pub fn run_mainnet_auth() -> MainnetAuthReport {
             )],
         },
     }
+}
+
+pub(crate) fn load_persisted_mainnet_credential() -> Result<PersistedMainnetCredential, String> {
+    let endpoint = env::var("WIRE_MAINNET_ENDPOINT")
+        .unwrap_or_else(|_| DEFAULT_MAINNET_ENDPOINT.to_owned())
+        .trim_end_matches('/')
+        .to_owned();
+    let state_path = match env::var("WIRE_AUTH_STATE_PATH") {
+        Ok(path) if !path.trim().is_empty() => expand_home(path.trim())?,
+        _ => default_state_path()?,
+    };
+    let text = fs::read_to_string(&state_path).map_err(|error| {
+        format!(
+            "failed to read persisted mainnet auth state `{}`: {error}. Run `agent-wire-substrate-node auth` first.",
+            path_for_report(&state_path)
+        )
+    })?;
+    let state = serde_json::from_str::<MainnetAuthState>(&text)
+        .map_err(|error| format!("persisted mainnet auth state is invalid JSON: {error}"))?;
+    if state.endpoint != endpoint {
+        return Err(format!(
+            "persisted auth endpoint `{}` does not match selected endpoint `{endpoint}`",
+            state.endpoint
+        ));
+    }
+    let slot = state
+        .agent_name
+        .trim()
+        .to_lowercase()
+        .strip_prefix("codex-")
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| state.agent_name.trim().to_lowercase());
+    Ok(PersistedMainnetCredential {
+        endpoint,
+        api_token: state.api_token,
+        identity: MainnetIdentity {
+            name: state.agent_name,
+            slot,
+            handle_path: state.handle_path,
+            pseudonym: state.pseudonym,
+            agent_id: state.agent_id,
+        },
+        state_path,
+    })
 }
 
 fn run_mainnet_auth_with_transport(

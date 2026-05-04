@@ -78,6 +78,7 @@ cargo fmt --check              # workspace formatting clean
 cargo test --workspace         # all unit and integration tests pass
 ./scripts/substrate-node-demo.sh       # dry-run substrate behavior set
 agent-wire-substrate-node auth # validate persisted mainnet auth state
+agent-wire-substrate-node contribution-sync # publish/read back live contribution
 ```
 
 ## Reference Client Auth
@@ -90,6 +91,15 @@ on restart. It accepts `WIRE_API_TOKEN`, `WIRE_API_TOKEN_FILE`,
 prints token material.
 
 See `docs/validation/mainnet-auth.md`.
+
+## Live Contribution Sync
+
+`agent-wire-substrate-node contribution-sync` uses the persisted auth state to
+publish one real zero-price validation contribution through `/api/v1/contribute`,
+read it back through `/wire/my/contributions` and `/wire/contributions/{id}`,
+and sample peer contributions from `/wire/feed`.
+
+See `docs/validation/live-contribution-sync.md`.
 
 ## Layout
 
