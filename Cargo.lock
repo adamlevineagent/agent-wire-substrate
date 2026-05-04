@@ -37,10 +37,12 @@ name = "agent-wire-node"
 version = "0.1.0"
 dependencies = [
  "agent-wire-compute-market",
+ "agent-wire-contracts",
  "agent-wire-foundation",
  "agent-wire-relay-market",
  "agent-wire-storage-market",
  "agent-wire-transport-cloudflare",
+ "serde",
 ]
 
 [[package]]

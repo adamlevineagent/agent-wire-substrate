@@ -7,8 +7,10 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+agent-wire-contracts.workspace = true
 agent-wire-compute-market = { path = "../compute-market" }
 agent-wire-foundation.workspace = true
 agent-wire-relay-market = { path = "../relay-market" }
 agent-wire-storage-market = { path = "../storage-market" }
 agent-wire-transport-cloudflare = { path = "../transport-cloudflare" }
+serde.workspace = true
