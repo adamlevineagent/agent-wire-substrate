@@ -7,6 +7,7 @@
 pub mod boot;
 pub mod config;
 pub mod contribution_sync;
+pub mod d3_live_compute_settlement;
 pub mod layer3_synthetic;
 pub mod layer4_synthetic;
 pub mod layer5_live_llm;
@@ -20,6 +21,9 @@ pub use config::{LocalPersistence, NodeConfig, NodeKeys, OptInPolicy};
 pub use contribution_sync::{
     run_live_contribution_sync, ContributionSyncItem, ContributionSyncReport,
     ContributionSyncStatus, ContributionSyncSubtest,
+};
+pub use d3_live_compute_settlement::{
+    run_d3_live_compute_settlement, D3LiveComputeSettlementReport, D3Status, D3Subtest,
 };
 pub use layer3_synthetic::{
     run_layer3_single_graph_synthetic, Layer3Status, Layer3Subtest, Layer3SyntheticReport,
@@ -127,5 +131,19 @@ mod tests {
 
         assert!(!report.all_green());
         assert_eq!(report.subtests[0].name, "provider-config-resolves-live-llm");
+    }
+
+    #[test]
+    fn d3_live_validation_fails_closed_without_provider_config() {
+        if std::env::var("OPENROUTER_API_KEY").is_ok()
+            && std::env::var("SUPABASE_SERVICE_ROLE_KEY").is_ok()
+        {
+            return;
+        }
+
+        let report = run_d3_live_compute_settlement();
+
+        assert!(!report.all_green());
+        assert_eq!(report.subtests[0].name, "d3-config-resolves");
     }
 }

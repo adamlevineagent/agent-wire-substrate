@@ -1,7 +1,7 @@
 use agent_wire_substrate_node::{
-    build_parity_demo, run_layer3_single_graph_synthetic, run_layer4_two_graph_bridged_synthetic,
-    run_layer5_live_llm_compute_roundtrip, run_live_contribution_sync, run_mainnet_auth,
-    substrate_stack_name,
+    build_parity_demo, run_d3_live_compute_settlement, run_layer3_single_graph_synthetic,
+    run_layer4_two_graph_bridged_synthetic, run_layer5_live_llm_compute_roundtrip,
+    run_live_contribution_sync, run_mainnet_auth, substrate_stack_name,
 };
 
 fn main() {
@@ -30,6 +30,13 @@ fn main() {
         },
         Some("layer5-live-llm") => {
             let report = run_layer5_live_llm_compute_roundtrip();
+            print!("{}", report.to_markdown());
+            if !report.all_green() {
+                std::process::exit(1);
+            }
+        }
+        Some("d3-live-compute-settlement") => {
+            let report = run_d3_live_compute_settlement();
             print!("{}", report.to_markdown());
             if !report.all_green() {
                 std::process::exit(1);
@@ -64,6 +71,9 @@ fn main() {
             );
             println!(
                 "  layer5-live-llm              Run Wave 2 Layer 5 live LLM compute roundtrip"
+            );
+            println!(
+                "  d3-live-compute-settlement   Run D3 live mainnet compute settlement validation"
             );
         }
         _ => println!("{}", substrate_stack_name()),
