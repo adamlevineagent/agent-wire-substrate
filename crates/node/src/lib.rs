@@ -8,6 +8,7 @@ pub mod boot;
 pub mod config;
 pub mod contribution_sync;
 pub mod d3_live_compute_settlement;
+pub mod l6_failure_injection;
 pub mod l6_observability;
 pub mod l6_stability_driver;
 pub mod layer3_synthetic;
@@ -26,6 +27,10 @@ pub use contribution_sync::{
 };
 pub use d3_live_compute_settlement::{
     run_d3_live_compute_settlement, D3LiveComputeSettlementReport, D3Status, D3Subtest,
+};
+pub use l6_failure_injection::{
+    run_failure_injection_scenarios, InjectionReport, InjectionScenarioResult, InjectionState,
+    KillPoint, RecoveryPolicy, WriteOncePolicy,
 };
 pub use l6_observability::{
     observe_l6_stability, L6CycleObservability, L6ObservabilityReport, ObservabilityFinding,
