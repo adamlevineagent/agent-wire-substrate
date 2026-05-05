@@ -1,3 +1,4 @@
+use agent_wire_compiler::CompilerOpManifest;
 use agent_wire_compute_market::{
     ComputeJobContract, ComputeJobEnvelope, ComputeOffer, ComputeOfferId, DispatchPolicy,
     ExecutionAdapterId, LatencyPreference, ModelInvocation, ProviderNodeId, ProviderType,
@@ -27,6 +28,7 @@ pub struct NodeRuntime {
     pub lifecycle: BackgroundWorkerLifecycle,
     pub api: OperatorApiSurface,
     pub markets: MarketComposition,
+    pub compiler: CompilerOpManifest,
     pub vocabulary: VocabularyEntry,
 }
 
@@ -50,6 +52,7 @@ pub fn compose_substrate_node(config: NodeConfig) -> Result<NodeRuntime, Foundat
         api: config.surfaces.clone(),
         lifecycle: BackgroundWorkerLifecycle::substrate_default(),
         markets: compose_market_bundle(&config.operator)?,
+        compiler: CompilerOpManifest::v1(),
         vocabulary: compose_vocabulary_entry()?,
         config,
         transport,

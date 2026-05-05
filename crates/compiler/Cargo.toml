@@ -1,0 +1,15 @@
+[package]
+name = "agent-wire-compiler"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+readme = "README.md"
+description = "Canonical Wire action compiler primitives for the agent-wire.com substrate."
+
+[dependencies]
+agent-wire-foundation.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

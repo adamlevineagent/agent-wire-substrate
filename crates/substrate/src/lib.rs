@@ -11,6 +11,9 @@ pub mod lifecycle;
 pub mod parity_demo;
 pub mod server;
 
+pub use agent_wire_compiler::{
+    CompilerOpManifest, WireActionDefinition, WireActionStep, WireCompiledPlan, WireCompiler,
+};
 pub use boot::{compose_substrate_node, MarketComposition, NodeRuntime};
 pub use config::{LocalPersistence, NodeConfig, NodeKeys, OptInPolicy};
 pub use lifecycle::{BackgroundWorker, BackgroundWorkerLifecycle};
@@ -37,6 +40,7 @@ mod tests {
         assert_eq!(runtime.markets.compute_offer.model_id, "wire-demo-model");
         assert_eq!(runtime.markets.storage_offer.capacity_bytes, 1_000_000);
         assert_eq!(runtime.markets.relay_offer.capabilities.len(), 2);
+        assert_eq!(runtime.compiler.logical_leaf_count(), 77);
         assert_eq!(runtime.vocabulary.term().key.as_str(), "compute-market");
         assert!(runtime.config.opt_in.compute_provider);
         assert!(runtime.config.opt_in.compute_requester);

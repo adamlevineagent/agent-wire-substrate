@@ -2,6 +2,7 @@
 members = [
     "crates/contracts",
     "crates/foundation",
+    "crates/compiler",
     "crates/transport-cloudflare",
     "crates/compute-market",
     "crates/storage-market",
@@ -19,6 +20,7 @@ rust-version = "1.78"
 
 [workspace.dependencies]
 agent-wire-compute-market = { version = "0.1.0", path = "crates/compute-market" }
+agent-wire-compiler = { version = "0.1.0", path = "crates/compiler" }
 agent-wire-contracts = { version = "0.1.0", path = "crates/contracts" }
 agent-wire-foundation = { version = "0.1.0", path = "crates/foundation" }
 agent-wire-relay-market = { version = "0.1.0", path = "crates/relay-market" }

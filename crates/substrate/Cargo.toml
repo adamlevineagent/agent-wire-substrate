@@ -9,6 +9,7 @@ readme = "README.md"
 description = "Umbrella composition library for the agent-wire.com substrate node stack."
 
 [dependencies]
+agent-wire-compiler.workspace = true
 agent-wire-compute-market.workspace = true
 agent-wire-contracts.workspace = true
 agent-wire-foundation.workspace = true

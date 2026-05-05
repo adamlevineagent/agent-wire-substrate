@@ -156,6 +156,7 @@ pub mod canonical_ops {
         Compiler,
         LlmPrimitive,
         WirePrimitive,
+        TaskPrimitive,
         StepModifier,
         InvocationMode,
         MaintenanceTask,
@@ -169,6 +170,7 @@ pub mod canonical_ops {
     pub trait CompilerOperation: CanonicalOp {}
     pub trait LlmOperation: CanonicalOp {}
     pub trait WireOperation: CanonicalOp {}
+    pub trait TaskOperation: CanonicalOp {}
     pub trait StepOperation: CanonicalOp {}
     pub trait InvocationOperation: CanonicalOp {}
     pub trait MaintenanceOperation: CanonicalOp {
@@ -324,6 +326,7 @@ pub mod canonical_ops {
         Rate,
         Flag,
         Browse,
+        Retract,
         ListCreate,
         ListPin,
         ListSubscribe,
@@ -346,13 +349,14 @@ pub mod canonical_ops {
     }
 
     impl WirePrimitive {
-        pub const ALL: [Self; 25] = [
+        pub const ALL: [Self; 26] = [
             Self::Query,
             Self::Contribute,
             Self::Access,
             Self::Rate,
             Self::Flag,
             Self::Browse,
+            Self::Retract,
             Self::ListCreate,
             Self::ListPin,
             Self::ListSubscribe,
@@ -386,6 +390,7 @@ pub mod canonical_ops {
                 Self::Rate => "wire.rate",
                 Self::Flag => "wire.flag",
                 Self::Browse => "wire.browse",
+                Self::Retract => "wire.retract",
                 Self::ListCreate => "wire.list.create",
                 Self::ListPin => "wire.list.pin",
                 Self::ListSubscribe => "wire.list.subscribe",
@@ -410,6 +415,34 @@ pub mod canonical_ops {
 
         fn family(&self) -> CanonicalOpFamily {
             CanonicalOpFamily::WirePrimitive
+        }
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum TaskPrimitive {
+        Create,
+        Claim,
+        Complete,
+    }
+
+    impl TaskPrimitive {
+        pub const ALL: [Self; 3] = [Self::Create, Self::Claim, Self::Complete];
+    }
+
+    impl sealed::Sealed for TaskPrimitive {}
+    impl TaskOperation for TaskPrimitive {}
+    impl CanonicalOp for TaskPrimitive {
+        fn name(&self) -> &'static str {
+            match self {
+                Self::Create => "task.create",
+                Self::Claim => "task.claim",
+                Self::Complete => "task.complete",
+            }
+        }
+
+        fn family(&self) -> CanonicalOpFamily {
+            CanonicalOpFamily::TaskPrimitive
         }
     }
 
@@ -581,6 +614,7 @@ pub mod canonical_ops {
         CompilerOp::ALL.iter().any(|op| op.name() == value)
             || LlmPrimitive::ALL.iter().any(|op| op.name() == value)
             || WirePrimitive::ALL.iter().any(|op| op.name() == value)
+            || TaskPrimitive::ALL.iter().any(|op| op.name() == value)
             || StepModifier::ALL.iter().any(|op| op.name() == value)
             || InvocationMode::ALL.iter().any(|op| op.name() == value)
             || MaintenanceTask::ALL.iter().any(|op| op.name() == value)
@@ -642,17 +676,23 @@ mod tests {
     #[test]
     fn canonical_ops_are_foundation_registered() {
         use canonical_ops::{
-            CanonicalOp, CompilerOp, MaintenanceOperation, MaintenanceTask, WirePrimitive,
+            CanonicalOp, CompilerOp, MaintenanceOperation, MaintenanceTask, TaskPrimitive,
+            WirePrimitive,
         };
 
         assert_eq!(CompilerOp::Llm.name(), "llm");
         assert_eq!(WirePrimitive::Contribute.name(), "wire.contribute");
+        assert_eq!(WirePrimitive::Retract.name(), "wire.retract");
+        assert_eq!(TaskPrimitive::Claim.name(), "task.claim");
         assert_eq!(
             MaintenanceTask::WorkerLivenessCheck.cron_hint(),
             "every_5_minutes"
         );
         assert!(canonical_ops::is_foundation_registered_name(
             "fill_idempotency_retention"
+        ));
+        assert!(canonical_ops::is_foundation_registered_name(
+            "task.complete"
         ));
     }
 
