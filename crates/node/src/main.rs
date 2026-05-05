@@ -1,9 +1,9 @@
+use agent_wire_substrate::{build_parity_demo, substrate_stack_name};
 use agent_wire_substrate_node::{
-    build_parity_demo, observe_l6_stability, run_d3_live_compute_settlement,
-    run_l6_recovery_injection_scenarios, run_l6_stability_driver,
-    run_layer3_single_graph_synthetic, run_layer4_two_graph_bridged_synthetic,
-    run_layer5_live_llm_compute_roundtrip, run_live_contribution_sync, run_mainnet_auth,
-    substrate_stack_name,
+    observe_l6_stability, run_d3_live_compute_settlement, run_l6_recovery_injection_scenarios,
+    run_l6_stability_driver, run_layer3_single_graph_synthetic,
+    run_layer4_two_graph_bridged_synthetic, run_layer5_live_llm_compute_roundtrip,
+    run_live_contribution_sync, run_mainnet_auth,
 };
 
 fn main() {

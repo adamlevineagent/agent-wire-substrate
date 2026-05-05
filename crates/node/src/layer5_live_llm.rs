@@ -10,12 +10,10 @@ use agent_wire_foundation::{
     CreditAmount, CrossGraphRef, EventCursor, EventEnvelope, EventId, EventKind, FoundationError,
     HandlePath, PriceCurve, SettlementIntent,
 };
+use agent_wire_substrate::{compose_substrate_node, NodeConfig, NodeRuntime};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use uuid::Uuid;
-
-use crate::boot::{compose_substrate_node, NodeRuntime};
-use crate::config::NodeConfig;
 
 const DEFAULT_OPENROUTER_BASE_URL: &str = "https://openrouter.ai/api/v1";
 const DEFAULT_OPENROUTER_MODEL: &str = "inception/mercury-2";

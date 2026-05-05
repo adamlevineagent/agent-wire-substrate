@@ -1,8 +1,11 @@
 # Stage 10 - Node Composition
 
-Stage 10 turns `crates/node` from a placeholder into the substrate-tier composition crate for
-Agent Wire Substrate Node 2.0. The crate owns local operator concerns and stays thin around the lower
-substrate crates.
+Stage 10 originally turned `crates/node` from a placeholder into the substrate-tier
+composition crate for Agent Wire Substrate Node 2.0. The publishing pass moved
+that composition surface into the umbrella `agent-wire-substrate` library crate
+so the publishable reference client can depend on the lower substrate crates
+without depending on the node binary crate. `agent-wire-substrate-node` is now a
+thin CLI shell around the library plus validation commands.
 
 In scope:
 
@@ -14,6 +17,7 @@ In scope:
 - Cloudflare transport composition through the foundation `TransportDriver` trait
 - market bundle composition over compute-market, storage-market, and relay-market crates
 - vocabulary handling through foundation vocabulary primitives
+- `agent-wire-substrate` umbrella library composition API
 - `agent-wire-substrate-node` binary entrypoint and substrate-node-demo command
 
 Out of scope:
@@ -32,5 +36,6 @@ cargo build --release
 scripts/substrate-node-demo.sh
 ```
 
-`cargo build --release` produces the `agent-wire-substrate-node` binary. The parity demo is a deterministic
-dry-run that exercises the substrate-tier behavior set without importing pyramid-app code.
+`cargo build --release` produces the `agent-wire-substrate-node` binary. The
+parity demo is a deterministic dry-run that exercises the `agent-wire-substrate`
+library behavior set without importing pyramid-app code.

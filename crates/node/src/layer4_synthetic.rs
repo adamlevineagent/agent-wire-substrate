@@ -9,11 +9,9 @@ use agent_wire_foundation::{
     OperatorEmail, PrivateAliasMapping, PrivateGraphRegistration, ReputationRegistryId,
     ReputationSnapshot, SignatureAlgorithm, SignedStatement,
 };
+use agent_wire_substrate::{compose_substrate_node, NodeConfig, NodeRuntime};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
-
-use crate::boot::{compose_substrate_node, NodeRuntime};
-use crate::config::NodeConfig;
 
 const BRIDGE_FRICTION_BPS: u128 = 200;
 

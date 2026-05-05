@@ -1,11 +1,8 @@
-//! Operator bundle composition crate.
+//! CLI validation crate for the Agent Wire substrate node.
 //!
-//! The boot/API split is intentionally outside foundation. This crate hosts
-//! substrate boot and substrate API composition while leaving vertical APIs to
-//! downstream application crates.
+//! Runtime composition lives in the umbrella `agent-wire-substrate` library.
+//! This crate keeps operator-facing validation commands and the binary shell.
 
-pub mod boot;
-pub mod config;
 pub mod contribution_sync;
 pub mod d3_live_compute_settlement;
 pub mod l6_failure_injection;
@@ -15,13 +12,14 @@ pub mod l6_stability_driver;
 pub mod layer3_synthetic;
 pub mod layer4_synthetic;
 pub mod layer5_live_llm;
-pub mod lifecycle;
 pub mod mainnet_auth;
-pub mod parity_demo;
-pub mod server;
 
-pub use boot::{compose_substrate_node, MarketComposition, NodeRuntime};
-pub use config::{LocalPersistence, NodeConfig, NodeKeys, OptInPolicy};
+pub use agent_wire_substrate::{
+    build_parity_demo, compose_substrate_node, parity_demo_assertions, substrate_stack_name,
+    BackgroundWorker, BackgroundWorkerLifecycle, LocalPersistence, MarketComposition, NodeConfig,
+    NodeKeys, NodeRuntime, OperatorApiProtocol, OperatorApiSurface, OperatorRoute, OptInPolicy,
+    ParityDemoReport, ParityDemoStep,
+};
 pub use contribution_sync::{
     run_live_contribution_sync, ContributionSyncItem, ContributionSyncReport,
     ContributionSyncStatus, ContributionSyncSubtest,
@@ -49,18 +47,9 @@ pub use layer5_live_llm::{
     run_layer5_live_llm_compute_roundtrip, run_layer5_live_llm_with_adapter, Layer5LiveLlmReport,
     Layer5ProviderConfig, Layer5Status, Layer5Subtest,
 };
-pub use lifecycle::{BackgroundWorker, BackgroundWorkerLifecycle};
 pub use mainnet_auth::{
     run_mainnet_auth, MainnetAuthReport, MainnetAuthStatus, MainnetAuthSubtest, MainnetIdentity,
 };
-pub use parity_demo::{
-    build_parity_demo, parity_demo_assertions, ParityDemoReport, ParityDemoStep,
-};
-pub use server::{OperatorApiProtocol, OperatorApiSurface, OperatorRoute};
-
-pub fn substrate_stack_name() -> &'static str {
-    "agent-wire-substrate"
-}
 
 #[cfg(test)]
 mod tests {

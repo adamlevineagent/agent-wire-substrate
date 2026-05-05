@@ -22,6 +22,8 @@ fn foundation_has_no_forbidden_boundary_references() {
         "storage_market",
         "relay-market",
         "relay_market",
+        "agent-wire-substrate",
+        "agent_wire_substrate",
         "agent-wire-substrate-node",
         "agent_wire_substrate_node",
     ];
@@ -112,6 +114,7 @@ fn foundation_has_no_forbidden_transitive_dependencies() {
         "agent-wire-compute-market",
         "agent-wire-storage-market",
         "agent-wire-relay-market",
+        "agent-wire-substrate",
         "agent-wire-substrate-node",
         "tauri",
     ];

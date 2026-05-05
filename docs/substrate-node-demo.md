@@ -1,8 +1,10 @@
 # Agent Wire Substrate Node 2.0 Parity Demo
 
 The Stage 10 parity demo is intentionally substrate-tier only. It proves that the new
-`agent-wire-substrate-node` binary can compose every Wave 1 crate into a single local node runtime without
-depending on pyramid-app code.
+`agent-wire-substrate` umbrella library can compose every Wave 1 crate into a
+single local node runtime without depending on pyramid-app code. The
+`agent-wire-substrate-node` binary is now a thin CLI shell around that library
+plus validation commands.
 
 Run:
 

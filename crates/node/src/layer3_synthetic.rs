@@ -20,13 +20,11 @@ use agent_wire_storage_market::{
     RetrievalReceipt, RetrievalRequest, RetrievalRequestId, StorageMarket, StorageOffer,
     StorageOfferId,
 };
+use agent_wire_substrate::{compose_substrate_node, NodeConfig, NodeRuntime};
 use agent_wire_transport_cloudflare::CloudflareTunnelDriver;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use uuid::Uuid;
-
-use crate::boot::{compose_substrate_node, NodeRuntime};
-use crate::config::NodeConfig;
 
 const ONE_MB_DECIMAL: usize = 1_000_000;
 
