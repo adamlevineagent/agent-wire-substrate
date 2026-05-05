@@ -3,8 +3,8 @@ use std::fs;
 use std::path::Path;
 
 use agent_wire_compiler::{
-    CompileError, CompiledOperation, CompilerContext, WireActionDefinition, WireCompiledPlan,
-    WireCompiler,
+    CanonicalWireActionDefinition, CompileError, CompiledOperation, CompilerContext,
+    WireActionDefinition, WireCompiledPlan, WireCompiler,
 };
 use agent_wire_foundation::canonical_ops::{
     CanonicalOp, HttpOperation, HttpRoute, InvocationMode, MaintenanceOperation, MaintenanceTask,
@@ -500,13 +500,27 @@ pub fn load_action_definition(path: &Path) -> Result<WireActionDefinition, V1Nod
         message: error.to_string(),
     })?;
     match path.extension().and_then(|extension| extension.to_str()) {
-        Some("yaml") | Some("yml") => {
-            serde_yaml::from_str(&body).map_err(|error| V1NodeSurfaceError::Yaml(error.to_string()))
-        }
-        _ => {
-            serde_json::from_str(&body).map_err(|error| V1NodeSurfaceError::Json(error.to_string()))
-        }
+        Some("yaml") | Some("yml") => load_yaml_action_definition(&body),
+        _ => load_json_action_definition(&body),
     }
+}
+
+fn load_json_action_definition(body: &str) -> Result<WireActionDefinition, V1NodeSurfaceError> {
+    if let Ok(canonical) = serde_json::from_str::<CanonicalWireActionDefinition>(body) {
+        return canonical
+            .into_internal()
+            .map_err(|error| V1NodeSurfaceError::Compile(error.to_string()));
+    }
+    serde_json::from_str(body).map_err(|error| V1NodeSurfaceError::Json(error.to_string()))
+}
+
+fn load_yaml_action_definition(body: &str) -> Result<WireActionDefinition, V1NodeSurfaceError> {
+    if let Ok(canonical) = serde_yaml::from_str::<CanonicalWireActionDefinition>(body) {
+        return canonical
+            .into_internal()
+            .map_err(|error| V1NodeSurfaceError::Compile(error.to_string()));
+    }
+    serde_yaml::from_str(body).map_err(|error| V1NodeSurfaceError::Yaml(error.to_string()))
 }
 
 pub fn compile_chain_definition(
@@ -805,6 +819,35 @@ mod tests {
         assert_eq!(
             execution.steps[0].status,
             V1StepExecutionStatus::StubbedOutOfV1
+        );
+    }
+
+    #[test]
+    fn cli_loader_accepts_canonical_wire_json_shape() {
+        let body = r#"{
+          "schemaVersion": 1,
+          "actionType": "chain",
+          "permissions": {
+            "contribute": true,
+            "maxCost": 1000
+          },
+          "steps": [
+            {
+              "name": "publish",
+              "operation": "wire",
+              "tool": "wire.contribute",
+              "outputSchema": {"type": "object"},
+              "modelTier": "low"
+            }
+          ]
+        }"#;
+
+        let definition = load_json_action_definition(body).unwrap();
+
+        assert_eq!(definition.steps[0].wire, Some(WirePrimitive::Contribute));
+        assert_eq!(
+            definition.steps[0].model_tier,
+            Some(agent_wire_compiler::ModelTier::Low)
         );
     }
 }

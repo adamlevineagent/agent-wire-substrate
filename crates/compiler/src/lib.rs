@@ -12,6 +12,7 @@ use agent_wire_foundation::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WireContributionType {
@@ -307,6 +308,405 @@ pub struct CompilerContext {
     pub quote_ref: CrossGraphRef,
     pub quote_key: IdempotencyKey,
     pub quote_expires_at_ms: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CanonicalWireCompiledPlan {
+    pub total_steps: usize,
+    pub max_cost: CreditAmount,
+    pub operations_used: Vec<String>,
+    pub resolved_actions: BTreeMap<String, String>,
+    pub compiled_at: String,
+}
+
+impl From<&WireCompiledPlan> for CanonicalWireCompiledPlan {
+    fn from(plan: &WireCompiledPlan) -> Self {
+        Self {
+            total_steps: plan.total_steps,
+            max_cost: plan.max_cost,
+            operations_used: plan.operations_used.clone(),
+            resolved_actions: plan
+                .resolved_actions
+                .iter()
+                .map(|(action_id, reference)| (action_id.clone(), reference.to_string()))
+                .collect(),
+            compiled_at: unix_ms_to_rfc3339(plan.compiled_at_ms),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CanonicalWireActionPermissions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub query: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub contribute: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub access: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rate: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub flag: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub list_manage: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<CanonicalMessagePermission>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub market_create: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_contributions: Option<u32>,
+    pub max_cost: CreditAmount,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CanonicalMessagePermission {
+    pub scope: CanonicalMessageScope,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CanonicalMessageScope {
+    Fleet,
+    Circle,
+}
+
+impl From<&WireActionPermissions> for CanonicalWireActionPermissions {
+    fn from(permissions: &WireActionPermissions) -> Self {
+        Self {
+            query: permissions.query.then_some(true),
+            contribute: permissions.contribute.then_some(true),
+            access: permissions.access.then_some(true),
+            rate: permissions.rate.then_some(true),
+            flag: permissions.flag.then_some(true),
+            list_manage: permissions.list_manage.then_some(true),
+            message: permissions.message.then_some(CanonicalMessagePermission {
+                scope: CanonicalMessageScope::Fleet,
+            }),
+            market_create: permissions.market_create.then_some(true),
+            max_contributions: Some(permissions.max_contributions),
+            max_cost: permissions.max_cost,
+        }
+    }
+}
+
+impl From<CanonicalWireActionPermissions> for WireActionPermissions {
+    fn from(permissions: CanonicalWireActionPermissions) -> Self {
+        Self {
+            query: permissions.query.unwrap_or(false),
+            contribute: permissions.contribute.unwrap_or(false),
+            access: permissions.access.unwrap_or(false),
+            rate: permissions.rate.unwrap_or(false),
+            flag: permissions.flag.unwrap_or(false),
+            retract: false,
+            list_manage: permissions.list_manage.unwrap_or(false),
+            message: permissions.message.is_some(),
+            market_create: permissions.market_create.unwrap_or(false),
+            task_board: true,
+            max_contributions: permissions.max_contributions.unwrap_or(64),
+            max_cost: permissions.max_cost,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CanonicalWireActionStep {
+    pub name: String,
+    pub operation: CompilerOp,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub primitive: Option<LlmPrimitive>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instruction: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub params: Option<BTreeMap<String, Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_schema: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_tier: Option<ModelTier>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub when: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub for_each: Option<CanonicalForEachSpec>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_iterations: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub on_error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wait_for: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub game_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub formation: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entry_fee: Option<CreditAmount>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bounty: Option<CreditAmount>,
+}
+
+impl CanonicalWireActionStep {
+    pub fn from_internal(step: &WireActionStep) -> Self {
+        Self {
+            name: step.name.clone(),
+            operation: step.operation,
+            primitive: step.primitive,
+            tool: tool_name_for_step(step),
+            instruction: step.instruction.clone(),
+            input: step.input.clone(),
+            params: (!step.params.is_empty()).then_some(step.params.clone()),
+            output_schema: step.output_schema.clone(),
+            model_tier: step.model_tier.clone(),
+            when: step.when.clone(),
+            for_each: step.for_each.as_ref().map(CanonicalForEachSpec::from),
+            max_iterations: None,
+            action_id: step.action_id.clone(),
+            on_error: canonical_on_error(&step.on_error),
+            wait_for: step.wait_for_completion.then(|| "completion".to_owned()),
+            game_type: step.game_type.clone(),
+            formation: step.formation.clone(),
+            duration: step.duration.clone(),
+            entry_fee: step.entry_fee,
+            bounty: step.bounty,
+        }
+    }
+
+    pub fn into_internal(self) -> Result<WireActionStep, CanonicalActionError> {
+        let mut step = WireActionStep::new(self.name, self.operation);
+        step.primitive = self.primitive;
+        step.instruction = self.instruction;
+        step.input = self.input;
+        step.params = self.params.unwrap_or_default();
+        step.output_schema = self.output_schema;
+        step.model_tier = self.model_tier;
+        step.when = self.when;
+        step.for_each = match (self.for_each, self.max_iterations) {
+            (Some(CanonicalForEachSpec::Reference(reference)), Some(max_iterations)) => {
+                Some(ForEachSpec::Items {
+                    reference,
+                    max_iterations,
+                })
+            }
+            (Some(for_each), _) => Some(for_each.into_internal()),
+            (None, _) => None,
+        };
+        step.action_id = self.action_id;
+        step.on_error = parse_on_error(self.on_error.as_deref())?;
+        step.wait_for_completion = self.wait_for.as_deref() == Some("completion");
+        step.game_type = self.game_type;
+        step.formation = self.formation;
+        step.duration = self.duration;
+        step.entry_fee = self.entry_fee;
+        step.bounty = self.bounty;
+        match step.operation {
+            CompilerOp::Wire => {
+                let tool = self.tool.ok_or(CanonicalActionError::MissingTool {
+                    operation: CompilerOp::Wire,
+                })?;
+                step.wire = Some(
+                    parse_wire_tool(&tool)
+                        .ok_or_else(|| CanonicalActionError::UnknownTool(tool.clone()))?,
+                );
+            }
+            CompilerOp::Task => {
+                let tool = self.tool.ok_or(CanonicalActionError::MissingTool {
+                    operation: CompilerOp::Task,
+                })?;
+                step.task = Some(
+                    parse_task_tool(&tool)
+                        .ok_or_else(|| CanonicalActionError::UnknownTool(tool.clone()))?,
+                );
+            }
+            CompilerOp::Llm | CompilerOp::Game => {}
+        }
+        Ok(step)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum CanonicalForEachSpec {
+    Reference(String),
+    Items {
+        items: String,
+        #[serde(rename = "maxIterations")]
+        max_iterations: u32,
+    },
+}
+
+impl CanonicalForEachSpec {
+    fn into_internal(self) -> ForEachSpec {
+        match self {
+            Self::Reference(reference) => ForEachSpec::Reference(reference),
+            Self::Items {
+                items,
+                max_iterations,
+            } => ForEachSpec::Items {
+                reference: items,
+                max_iterations,
+            },
+        }
+    }
+}
+
+impl From<&ForEachSpec> for CanonicalForEachSpec {
+    fn from(spec: &ForEachSpec) -> Self {
+        match spec {
+            ForEachSpec::Reference(reference) => Self::Reference(reference.clone()),
+            ForEachSpec::Items {
+                reference,
+                max_iterations,
+            } => Self::Items {
+                items: reference.clone(),
+                max_iterations: *max_iterations,
+            },
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CanonicalActionType {
+    Chain,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CanonicalWireActionDefinition {
+    pub schema_version: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operation: Option<CompilerOp>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub primitive: Option<LlmPrimitive>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instruction: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_schema: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_schema: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub constraints: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_tier: Option<ModelTier>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action_type: Option<CanonicalActionType>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub steps: Option<Vec<CanonicalWireActionStep>>,
+    pub permissions: CanonicalWireActionPermissions,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compiled_plan: Option<CanonicalWireCompiledPlan>,
+}
+
+impl CanonicalWireActionDefinition {
+    pub fn from_internal(
+        definition: &WireActionDefinition,
+        plan: Option<&WireCompiledPlan>,
+    ) -> Self {
+        let compiled_plan = plan.map(CanonicalWireCompiledPlan::from);
+        let permissions = CanonicalWireActionPermissions::from(&definition.permissions);
+        if definition.action_kind == WireActionKind::Chain {
+            Self {
+                schema_version: 1,
+                operation: None,
+                primitive: None,
+                instruction: None,
+                input_schema: None,
+                output_schema: None,
+                constraints: None,
+                model_tier: None,
+                action_type: Some(CanonicalActionType::Chain),
+                steps: Some(
+                    definition
+                        .steps
+                        .iter()
+                        .map(CanonicalWireActionStep::from_internal)
+                        .collect(),
+                ),
+                permissions,
+                compiled_plan,
+            }
+        } else {
+            let step = definition.steps.first();
+            Self {
+                schema_version: 1,
+                operation: step.map(|step| step.operation),
+                primitive: step.and_then(|step| step.primitive),
+                instruction: step.and_then(|step| step.instruction.clone()),
+                input_schema: None,
+                output_schema: step.and_then(|step| step.output_schema.clone()),
+                constraints: None,
+                model_tier: step.and_then(|step| step.model_tier.clone()),
+                action_type: None,
+                steps: None,
+                permissions,
+                compiled_plan,
+            }
+        }
+    }
+
+    pub fn into_internal(self) -> Result<WireActionDefinition, CanonicalActionError> {
+        if self.schema_version != 1 {
+            return Err(CanonicalActionError::UnsupportedSchemaVersion(
+                self.schema_version,
+            ));
+        }
+        let permissions = self.permissions.into();
+        if self.action_type == Some(CanonicalActionType::Chain) {
+            let steps = self
+                .steps
+                .ok_or(CanonicalActionError::EmptySteps)?
+                .into_iter()
+                .map(CanonicalWireActionStep::into_internal)
+                .collect::<Result<Vec<_>, _>>()?;
+            if steps.is_empty() {
+                return Err(CanonicalActionError::EmptySteps);
+            }
+            return Ok(WireActionDefinition::chain(
+                "canonical-chain",
+                steps,
+                permissions,
+            ));
+        }
+
+        let operation = self
+            .operation
+            .ok_or(CanonicalActionError::MissingSingleStepOperation)?;
+        let canonical_step = CanonicalWireActionStep {
+            name: "single".to_owned(),
+            operation,
+            primitive: self.primitive,
+            tool: None,
+            instruction: self.instruction,
+            input: None,
+            params: None,
+            output_schema: self.output_schema,
+            model_tier: self.model_tier,
+            when: None,
+            for_each: None,
+            max_iterations: None,
+            action_id: None,
+            on_error: None,
+            wait_for: None,
+            game_type: None,
+            formation: None,
+            duration: None,
+            entry_fee: None,
+            bounty: None,
+        };
+        Ok(WireActionDefinition::single(
+            "canonical-single",
+            canonical_step.into_internal()?,
+            permissions,
+        ))
+    }
 }
 
 pub trait ActionResolver {
@@ -650,8 +1050,87 @@ pub enum CompileError {
     Foundation(#[from] FoundationError),
 }
 
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum CanonicalActionError {
+    #[error("canonical action schema version {0} is not supported")]
+    UnsupportedSchemaVersion(u8),
+
+    #[error("canonical chain action has no steps")]
+    EmptySteps,
+
+    #[error("canonical single-step action is missing operation")]
+    MissingSingleStepOperation,
+
+    #[error("{operation:?} step is missing canonical tool")]
+    MissingTool { operation: CompilerOp },
+
+    #[error("unknown canonical action tool: {0}")]
+    UnknownTool(String),
+
+    #[error("invalid canonical onError value: {0}")]
+    InvalidOnError(String),
+}
+
 const MAX_ITERATIONS: u32 = 1_000;
 const MAX_RETRY_ATTEMPTS: u8 = 5;
+
+fn tool_name_for_step(step: &WireActionStep) -> Option<String> {
+    match step.operation {
+        CompilerOp::Wire => step.wire.map(|primitive| primitive.name().to_owned()),
+        CompilerOp::Task => step.task.map(|primitive| primitive.name().to_owned()),
+        CompilerOp::Llm | CompilerOp::Game => None,
+    }
+}
+
+fn canonical_on_error(policy: &OnErrorPolicy) -> Option<String> {
+    match policy {
+        OnErrorPolicy::Abort => None,
+        OnErrorPolicy::Skip => Some("skip".to_owned()),
+        OnErrorPolicy::Retry { attempts } => Some(format!("retry({attempts})")),
+    }
+}
+
+fn parse_on_error(value: Option<&str>) -> Result<OnErrorPolicy, CanonicalActionError> {
+    let Some(value) = value else {
+        return Ok(OnErrorPolicy::Abort);
+    };
+    match value {
+        "abort" => Ok(OnErrorPolicy::Abort),
+        "skip" => Ok(OnErrorPolicy::Skip),
+        retry if retry.starts_with("retry(") && retry.ends_with(')') => {
+            let attempts = retry
+                .trim_start_matches("retry(")
+                .trim_end_matches(')')
+                .parse::<u8>()
+                .map_err(|_| CanonicalActionError::InvalidOnError(retry.to_owned()))?;
+            OnErrorPolicy::retry(attempts)
+                .map_err(|_| CanonicalActionError::InvalidOnError(retry.to_owned()))
+        }
+        other => Err(CanonicalActionError::InvalidOnError(other.to_owned())),
+    }
+}
+
+fn parse_wire_tool(value: &str) -> Option<WirePrimitive> {
+    WirePrimitive::ALL
+        .iter()
+        .copied()
+        .find(|primitive| primitive.name() == value)
+}
+
+fn parse_task_tool(value: &str) -> Option<TaskPrimitive> {
+    TaskPrimitive::ALL
+        .iter()
+        .copied()
+        .find(|primitive| primitive.name() == value)
+}
+
+fn unix_ms_to_rfc3339(value: u64) -> String {
+    let nanos = i128::from(value) * 1_000_000;
+    OffsetDateTime::from_unix_timestamp_nanos(nanos)
+        .ok()
+        .and_then(|timestamp| timestamp.format(&Rfc3339).ok())
+        .unwrap_or_else(|| "1970-01-01T00:00:00Z".to_owned())
+}
 
 #[cfg(test)]
 mod tests {
@@ -825,5 +1304,118 @@ mod tests {
                 max_allowed: CreditAmount::from_sats(1),
             })
         );
+    }
+
+    #[test]
+    fn canonical_action_definition_uses_goodnews_everyone_json_shape() {
+        struct Resolver;
+        impl ActionResolver for Resolver {
+            fn resolve_action_id(&self, action_id: &str) -> Option<CrossGraphRef> {
+                (action_id == "nested-action").then(|| playful_ref(9))
+            }
+        }
+
+        let compiler = WireCompiler::new(Resolver, DefaultStepCostModel);
+        let mut llm = WireActionStep::llm("extract", LlmPrimitive::Extract);
+        llm.output_schema = Some(serde_json::json!({"type": "object"}));
+        llm.model_tier = Some(ModelTier::High);
+        let mut wire = WireActionStep::wire("publish", WirePrimitive::Contribute);
+        wire.for_each = Some(ForEachSpec::Items {
+            reference: "$extract.claims".to_owned(),
+            max_iterations: 4,
+        });
+        wire.action_id = Some("nested-action".to_owned());
+        wire.on_error = OnErrorPolicy::retry(2).unwrap();
+        let mut task = WireActionStep::task("claim", TaskPrimitive::Claim);
+        task.wait_for_completion = true;
+        task.bounty = Some(CreditAmount::from_sats(7));
+
+        let definition =
+            WireActionDefinition::chain("ws3-parity", vec![llm, wire, task], permissions());
+        let plan = compiler
+            .compile(&definition, InvocationMode::Quote, &context())
+            .unwrap();
+        let canonical = CanonicalWireActionDefinition::from_internal(&definition, Some(&plan));
+        let value = serde_json::to_value(&canonical).unwrap();
+
+        assert_eq!(value["schemaVersion"], 1);
+        assert_eq!(value["actionType"], "chain");
+        assert_eq!(value["steps"][1]["tool"], "wire.contribute");
+        assert_eq!(value["steps"][1]["forEach"]["items"], "$extract.claims");
+        assert_eq!(value["steps"][1]["forEach"]["maxIterations"], 4);
+        assert_eq!(value["steps"][1]["actionId"], "nested-action");
+        assert_eq!(value["steps"][1]["onError"], "retry(2)");
+        assert_eq!(value["steps"][2]["tool"], "task.claim");
+        assert_eq!(value["steps"][2]["waitFor"], "completion");
+        assert_eq!(value["steps"][2]["bounty"], 7);
+        assert_eq!(value["compiledPlan"]["totalSteps"], 3);
+        assert_eq!(value["compiledPlan"]["maxCost"], 13);
+        assert_eq!(value["compiledPlan"]["operationsUsed"][0], "extract");
+        assert_eq!(value["compiledPlan"]["compiledAt"], "1970-01-01T00:00:01Z");
+        assert!(value.get("contribution_type").is_none());
+        assert!(value.get("action_kind").is_none());
+        assert!(value["steps"][0].get("output_schema").is_none());
+        assert!(value["steps"][0].get("model_tier").is_none());
+        assert!(value["steps"][1].get("wire").is_none());
+        assert!(value["compiledPlan"].get("compiled_at_ms").is_none());
+        assert!(value["compiledPlan"].get("quote_receipt").is_none());
+        assert!(value["compiledPlan"].get("steps").is_none());
+    }
+
+    #[test]
+    fn canonical_action_definition_round_trips_into_typed_internal_plan() {
+        let canonical = serde_json::json!({
+            "schemaVersion": 1,
+            "actionType": "chain",
+            "permissions": {
+                "query": true,
+                "contribute": true,
+                "message": { "scope": "fleet" },
+                "maxContributions": 8,
+                "maxCost": 1_000
+            },
+            "steps": [
+                {
+                    "name": "extract",
+                    "operation": "llm",
+                    "primitive": "extract",
+                    "instruction": "extract claims",
+                    "outputSchema": { "type": "object" },
+                    "modelTier": "mid"
+                },
+                {
+                    "name": "publish",
+                    "operation": "wire",
+                    "tool": "wire.contribute",
+                    "forEach": { "items": "$extract.claims", "maxIterations": 3 },
+                    "onError": "skip"
+                },
+                {
+                    "name": "claim",
+                    "operation": "task",
+                    "tool": "task.claim",
+                    "waitFor": "completion"
+                }
+            ]
+        });
+        let dto: CanonicalWireActionDefinition = serde_json::from_value(canonical).unwrap();
+        let internal = dto.into_internal().unwrap();
+
+        assert_eq!(internal.action_kind, WireActionKind::Chain);
+        assert_eq!(internal.permissions.max_contributions, 8);
+        assert!(internal.permissions.message);
+        assert_eq!(internal.steps[0].operation, CompilerOp::Llm);
+        assert_eq!(internal.steps[0].model_tier, Some(ModelTier::Mid));
+        assert_eq!(internal.steps[1].wire, Some(WirePrimitive::Contribute));
+        assert_eq!(
+            internal.steps[1].for_each,
+            Some(ForEachSpec::Items {
+                reference: "$extract.claims".to_owned(),
+                max_iterations: 3,
+            })
+        );
+        assert_eq!(internal.steps[1].on_error, OnErrorPolicy::Skip);
+        assert_eq!(internal.steps[2].task, Some(TaskPrimitive::Claim));
+        assert!(internal.steps[2].wait_for_completion);
     }
 }
