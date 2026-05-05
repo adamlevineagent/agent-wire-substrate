@@ -1,4 +1,6 @@
+use std::collections::hash_map::DefaultHasher;
 use std::env;
+use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
@@ -20,6 +22,10 @@ const DEFAULT_OPENROUTER_BASE_URL: &str = "https://openrouter.ai/api/v1";
 const DEFAULT_OPENROUTER_MODEL: &str = "inception/mercury-2";
 const DEFAULT_SUPABASE_URL: &str = "https://supabase.newsbleach.com";
 const D3_PROMPT: &str = "Return exactly this sentence: D3 live compute settlement green.";
+const DEFAULT_FILL_RETRY_TIMEOUT_SECS: u64 = 180;
+const DEFAULT_FILL_RETRY_MAX_ATTEMPTS: u32 = 24;
+const DEFAULT_FILL_RETRY_BACKOFF_MILLIS: u64 = 5_000;
+const DEFAULT_FILL_RETRY_MAX_JITTER_MILLIS: u64 = 1_000;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct D3LiveComputeSettlementReport {
@@ -173,6 +179,15 @@ struct D3Config {
     max_tokens: u32,
     max_budget: i64,
     tunnel_health_timeout_secs: u64,
+    fill_retry_policy: D3FillRetryPolicy,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct D3FillRetryPolicy {
+    timeout_secs: u64,
+    max_attempts: u32,
+    backoff_millis: u64,
+    max_jitter_millis: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -523,6 +538,7 @@ impl D3Config {
             .ok()
             .and_then(|raw| raw.parse::<u64>().ok())
             .unwrap_or(120);
+        let fill_retry_policy = D3FillRetryPolicy::from_env();
 
         Ok(Self {
             endpoint,
@@ -535,6 +551,7 @@ impl D3Config {
             max_tokens,
             max_budget,
             tunnel_health_timeout_secs,
+            fill_retry_policy,
         })
     }
 
@@ -549,6 +566,66 @@ impl D3Config {
             path.trim_start_matches('/')
         )
     }
+}
+
+impl D3FillRetryPolicy {
+    fn from_env() -> Self {
+        Self {
+            timeout_secs: env_u64(
+                "D3_FILL_RETRY_TIMEOUT_SECS",
+                DEFAULT_FILL_RETRY_TIMEOUT_SECS,
+            )
+            .max(1),
+            max_attempts: env_u64(
+                "D3_FILL_RETRY_MAX_ATTEMPTS",
+                u64::from(DEFAULT_FILL_RETRY_MAX_ATTEMPTS),
+            )
+            .clamp(1, u64::from(u32::MAX)) as u32,
+            backoff_millis: env_u64(
+                "D3_FILL_RETRY_BACKOFF_MILLIS",
+                DEFAULT_FILL_RETRY_BACKOFF_MILLIS,
+            )
+            .max(250),
+            max_jitter_millis: env_u64(
+                "D3_FILL_RETRY_MAX_JITTER_MILLIS",
+                DEFAULT_FILL_RETRY_MAX_JITTER_MILLIS,
+            ),
+        }
+    }
+
+    fn next_sleep(
+        &self,
+        reason: &str,
+        attempts: u32,
+        started_at: Instant,
+        idempotency_key: &str,
+    ) -> Option<Duration> {
+        if !fill_error_is_retryable(reason) || attempts >= self.max_attempts {
+            return None;
+        }
+        let elapsed = started_at.elapsed();
+        let timeout = Duration::from_secs(self.timeout_secs);
+        if elapsed >= timeout {
+            return None;
+        }
+        let remaining = timeout.saturating_sub(elapsed);
+        let sleep = self.retry_sleep_duration(idempotency_key, attempts);
+        Some(if sleep > remaining { remaining } else { sleep })
+    }
+
+    fn retry_sleep_duration(&self, idempotency_key: &str, attempts: u32) -> Duration {
+        Duration::from_millis(
+            self.backoff_millis
+                + retry_jitter_millis(idempotency_key, attempts, self.max_jitter_millis),
+        )
+    }
+}
+
+fn env_u64(name: &str, default: u64) -> u64 {
+    env::var(name)
+        .ok()
+        .and_then(|raw| raw.parse::<u64>().ok())
+        .unwrap_or(default)
 }
 
 fn ensure_node(
@@ -831,6 +908,7 @@ fn fill_job(
 ) -> Result<Value, String> {
     let url = config.api_url("/compute/fill");
     let auth_header = format!("Bearer {api_token}");
+    let idempotency_key = Uuid::new_v4().to_string();
     let payload = json!({
         "job_id": job_id,
         "input_token_count": 32,
@@ -850,12 +928,53 @@ fn fill_job(
             }
         ]
     });
-    let response = ureq::post(&url)
-        .set("Authorization", &auth_header)
-        .set("Content-Type", "application/json")
-        .set("Idempotency-Key", &Uuid::new_v4().to_string())
-        .send_json(payload);
-    parse_ureq_response(response)
+    let started_at = Instant::now();
+    let mut attempts: u32 = 0;
+    loop {
+        attempts += 1;
+        let response = ureq::post(&url)
+            .set("Authorization", &auth_header)
+            .set("Content-Type", "application/json")
+            .set("Idempotency-Key", &idempotency_key)
+            .send_json(payload.clone());
+        match parse_ureq_response(response) {
+            Ok(value) => return Ok(value),
+            Err(reason) => {
+                let Some(sleep) = config.fill_retry_policy.next_sleep(
+                    &reason,
+                    attempts,
+                    started_at,
+                    &idempotency_key,
+                ) else {
+                    if attempts > 1 {
+                        return Err(format!(
+                            "fill failed after {attempts} attempts with stable idempotency key: {reason}"
+                        ));
+                    }
+                    return Err(reason);
+                };
+                thread::sleep(sleep);
+            }
+        }
+    }
+}
+
+fn fill_error_is_retryable(reason: &str) -> bool {
+    reason.contains("provider_unreachable")
+        || reason.contains("http_530")
+        || reason.contains("HTTP 502")
+        || reason.contains("HTTP 503")
+        || reason.contains("HTTP 504")
+}
+
+fn retry_jitter_millis(idempotency_key: &str, attempts: u32, max_jitter_millis: u64) -> u64 {
+    if max_jitter_millis == 0 {
+        return 0;
+    }
+    let mut hasher = DefaultHasher::new();
+    idempotency_key.hash(&mut hasher);
+    attempts.hash(&mut hasher);
+    hasher.finish() % (max_jitter_millis + 1)
 }
 
 fn wait_for_provider_completion(state: &Arc<Mutex<ProviderState>>) -> Result<(), String> {
@@ -1446,5 +1565,62 @@ mod tests {
             sanitize_node_handle("D3 Kramer Provider 123"),
             "d3-kramer-provider-123"
         );
+    }
+
+    #[test]
+    fn fill_retry_classifier_catches_tunnel_propagation_errors() {
+        assert!(fill_error_is_retryable(
+            "HTTP 503: {\"error\":\"provider_unreachable\",\"detail\":{\"message\":\"http_530\"}}"
+        ));
+        assert!(fill_error_is_retryable("HTTP 502: edge unavailable"));
+        assert!(fill_error_is_retryable("HTTP 504: timeout"));
+        assert!(!fill_error_is_retryable("HTTP 400: malformed job"));
+    }
+
+    #[test]
+    fn fill_retry_policy_enforces_attempt_and_timeout_bounds() {
+        let policy = D3FillRetryPolicy {
+            timeout_secs: 30,
+            max_attempts: 2,
+            backoff_millis: 250,
+            max_jitter_millis: 0,
+        };
+        let started_at = Instant::now();
+
+        assert_eq!(
+            policy
+                .next_sleep(
+                    "HTTP 503: provider_unreachable",
+                    1,
+                    started_at,
+                    "stable-key"
+                )
+                .unwrap(),
+            Duration::from_millis(250)
+        );
+        assert!(policy
+            .next_sleep(
+                "HTTP 503: provider_unreachable",
+                2,
+                started_at,
+                "stable-key"
+            )
+            .is_none());
+    }
+
+    #[test]
+    fn fill_retry_jitter_is_deterministic_and_bounded() {
+        let policy = D3FillRetryPolicy {
+            timeout_secs: 30,
+            max_attempts: 3,
+            backoff_millis: 500,
+            max_jitter_millis: 100,
+        };
+
+        let first = policy.retry_sleep_duration("stable-key", 1);
+        let second = policy.retry_sleep_duration("stable-key", 1);
+        assert_eq!(first, second);
+        assert!(first >= Duration::from_millis(500));
+        assert!(first <= Duration::from_millis(600));
     }
 }

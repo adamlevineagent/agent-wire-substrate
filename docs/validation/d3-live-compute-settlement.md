@@ -20,6 +20,16 @@ The script accepts `D3_ENV_FILE=/path/to/.env` and sources it before invoking th
 - `D3_CLOUDFLARED_PATH` when `cloudflared` is not on `PATH`
 - `D3_TUNNEL_HEALTH_TIMEOUT_SECS` to override the 120-second DNS/tunnel health window
 
+D3 treats `/compute/fill` dispatch as a live tunnel propagation seam. Transient
+`provider_unreachable`, `http_530`, and 502/503/504 fill failures are retried
+with one stable idempotency key so the requester cannot be double-charged while
+the Cloudflare route catches up. Retry policy controls:
+
+- `D3_FILL_RETRY_TIMEOUT_SECS`: total retry window. Defaults to `180`.
+- `D3_FILL_RETRY_MAX_ATTEMPTS`: hard attempt cap. Defaults to `24`.
+- `D3_FILL_RETRY_BACKOFF_MILLIS`: base backoff. Defaults to `5000`.
+- `D3_FILL_RETRY_MAX_JITTER_MILLIS`: deterministic per-attempt jitter cap. Defaults to `1000`.
+
 ## Command
 
 ```bash

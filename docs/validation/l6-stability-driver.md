@@ -2,6 +2,11 @@
 
 The L6 driver is the substrate-side harness for long-running reference-client stability. It reuses the D3 live compute settlement validator as the canonical per-cycle primitive: every cycle provisions or reuses the mainnet surfaces required by D3, runs a Cloudflare-backed provider, buys/fills a small compute job, posts settlement, and verifies `wire_settlements`.
 
+Because each L6 cycle creates a fresh Cloudflare route, D3's fill step uses a
+bounded retry policy for transient tunnel-propagation dispatch failures. Retries
+reuse the same fill idempotency key and are capped by timeout, max attempts,
+base backoff, and deterministic jitter.
+
 ## Scope
 
 - Run repeated small real-money D3 settlement cycles.
@@ -26,6 +31,7 @@ The script accepts `L6_ENV_FILE=/path/to/.env` and sources it before invoking th
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `NEXT_PUBLIC_SUPABASE_URL` or `SUPABASE_URL`
 - `D3_CLOUDFLARED_PATH` when `cloudflared` is not on `PATH`
+- D3 fill retry controls documented in `docs/validation/d3-live-compute-settlement.md`
 
 L6-specific controls:
 
