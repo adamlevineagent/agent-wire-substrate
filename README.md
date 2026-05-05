@@ -2,7 +2,7 @@
 
 The substrate-tier of the Wire: foundation crate, transport drivers, and the
 three markets (compute, storage, relay), packaged as a Cargo workspace and
-composed by the `agent-wire-substrate-node` v2 binary.
+composed by the `agent-wire-substrate-node` V1 reference binary.
 
 This is the chassis. Verticals such as mainnet Wire, kitty-wire, and future
 Sovereign Graphs deploy on top of it. Pyramid-app-v2 (Track B) eventually
@@ -10,17 +10,20 @@ migrates onto it.
 
 ## What This Repo Is
 
-`agent-wire-substrate` is a Rust Cargo workspace with seven crates:
+`agent-wire-substrate` is a Rust Cargo workspace with nine crates: eight
+publishable library crates plus the reference-node binary crate.
 
 | Crate | Role |
 | --- | --- |
 | `foundation` | Identity and cross-graph types, refs, namespace, transport trait, sandbox, vocabulary mechanism, economics primitives, event envelope, contracts boundary, dependency guard |
 | `contracts` | Bilateral DTO crate; `From<ContractDto>` conversions only, with no inherent methods (Option 3 WRAP) |
+| `compiler` | Canonical Wire action compiler IR, sealed op manifests, canonical GoodNewsEveryone action DTO adapters, and quote/review/trusted compile modes |
 | `transport-cloudflare` | Cloudflare driver implementing the foundation transport trait (P2P tunnel, default 12h rotation) |
 | `compute-market` | Neutral compute-market contracts (`ComputeJobEnvelope`, `ModelInvocation`, `ExecutionAdapter`, `DeliveryPolicy`, `EventSink`, `ChronicleSink`, `QueueAdmission`, `DispatchPolicy`, `ComputeJobContract`) plus provider/requester scaffolds |
 | `storage-market` | Storage-market trait scaffold (greenfield) |
 | `relay-market` | Relay-market trait scaffold (greenfield) |
-| `node` | Composes foundation, contracts, transport-cloudflare, and all three markets; produces the `agent-wire-substrate-node` binary; ships `scripts/substrate-node-demo.sh` |
+| `substrate` | Publishable umbrella composition library over the lower substrate crates |
+| `node` | CLI validation and reference-node binary shell; exposes V1 identity, chain, compute, MCP, HTTP, runtime, and maintenance surfaces |
 
 ## Architectural Commitments
 
@@ -56,30 +59,61 @@ allowed graph.
 
 ## Status
 
-Wave 1 (substrate-tier rebuild) closed on commit chain:
+The V1 buildout has moved the workspace from substrate-only parity into a
+minimal reference Wire participant app:
 
-`bbf6af2 -> 79de7ba -> eae8914 -> 9974d0c -> 82f0f67e -> d4773723`
+- the base substrate library crates have shipped on crates.io;
+- `agent-wire-compiler` exposes the canonical compiler IR and canonical Wire
+  action DTO adapters;
+- `agent-wire-compute-market` owns deterministic offer/quote/purchase/fill
+  state-machine behavior;
+- `agent-wire-substrate-node` exposes CLI, MCP, HTTP, runtime listener smoke,
+  identity persistence, and maintenance scheduler surfaces.
 
-That chain covers Stages 1, 2, 3, 4, 5, 7, 8, 9, and 10; Stage 6 collapsed as a
-numbering gap. Mission `/122/6` (substrate-tier rebuild for pyramid-less Node
-2.0 parity) met acceptance criteria at compile/test level.
-
-Mainnet authentication, live syncs, and live-market roundtrips are not exercised
-in Wave 1. Architectural parity is at compile/test level only. Live-deploy
-validation is Wave 2 work.
+The remaining V1 gates are integration and release gates, not a license to blur
+the substrate boundary: live end-to-end signup/chain/compute settlement, final
+Newman/Elaine audit, bundled-cloudflared release proof, and OTP-gated release of
+the V1-added compiler/node artifacts.
 
 ## Quick Start
 
 ```sh
-git clone https://github.com/adamlevineagent/agent-wire-substrate
+git clone https://github.com/agent-wire-com/agent-wire-substrate
 cd agent-wire-substrate
 cargo build --release          # builds the agent-wire-substrate-node binary
-cargo fmt --check              # workspace formatting clean
+cargo fmt --all -- --check     # workspace formatting clean
 cargo test --workspace         # all unit and integration tests pass
 ./scripts/substrate-node-demo.sh       # dry-run substrate behavior set
+./scripts/v1-node-surface.sh           # V1 CLI/MCP/HTTP/runtime smoke
 agent-wire-substrate-node auth # validate persisted mainnet auth state
 agent-wire-substrate-node contribution-sync # publish/read back live contribution
 ```
+
+## V1 Reference Node CLI
+
+The binary is pure CLI. No desktop UI or Tauri shell is part of V1.
+
+Core V1 commands:
+
+- `surface`
+- `identity signup|login|status`
+- `identity persist [state-dir]`
+- `identity load [state-dir]`
+- `chain compile <chain.yaml|json> [quote|review|trusted]`
+- `chain quote <chain.yaml|json>`
+- `chain execute <chain.yaml|json> [quote|review|trusted]`
+- `compute offer|quote|purchase|fill|jobs|market-surface`
+- `mcp manifest`
+- `mcp dispatch <tool>`
+- `http manifest`
+- `http dispatch <method> <path>`
+- `http smoke`
+- `maintenance run-once`
+- `maintenance schedule-tick`
+- `runtime smoke [state-dir]`
+
+See `docs/v1-node-cli.md` for operator usage and `docs/v1-node-deployment.md`
+for build, state, auth, cloudflared, and release-gate notes.
 
 ## Reference Client Auth
 
@@ -108,30 +142,38 @@ agent-wire-substrate/
 |-- crates/
 |   |-- foundation/             # identity, refs, namespace, transport, sandbox, vocab, economics, events
 |   |-- contracts/              # bilateral DTO crate (Option 3 WRAP)
+|   |-- compiler/               # canonical Wire action compiler and DTO adapters
 |   |-- transport-cloudflare/   # Cloudflare tunnel driver
 |   |-- compute-market/         # neutral compute contracts and scaffolds
 |   |-- storage-market/         # storage trait scaffolds (greenfield)
 |   |-- relay-market/           # relay trait scaffolds (greenfield)
-|   `-- node/                   # composition crate, binary, parity demo
+|   |-- substrate/              # umbrella composition library
+|   `-- node/                   # reference CLI binary and validation harnesses
 |-- docs/
 |   |-- stages/                 # per-stage decision docs
 |   |-- validation/             # synthetic and live validation notes
+|   |-- v1-node-cli.md          # V1 CLI usage
+|   |-- v1-node-deployment.md   # V1 deployment and release notes
 |   `-- substrate-node-demo.md          # what the dry-run demo proves
 |-- scripts/
-|   `-- substrate-node-demo.sh          # end-to-end substrate dry-run
+|   |-- substrate-node-demo.sh          # end-to-end substrate dry-run
+|   `-- v1-node-surface.sh              # V1 surface/runtime smoke
 `-- Cargo.toml                  # workspace manifest
 ```
 
 ## What The Substrate Does Not Do
 
 - It is **not a Wire deployment.** It is the chassis a Wire deployment runs on.
-  Without database, JWT-issuer config, market provider registration, and fleet
-  wiring, it does nothing useful at runtime by design.
+  The V1 reference binary can authenticate, compile local chains, expose typed
+  protocol surfaces, and run validation smokes, but production database policy,
+  fleet wiring, and release operations remain operator-gated.
 - It does **not include game-specific code** such as kitty-wire. Verticals are
   downstream consumers.
 - It does **not include pyramid functionality.** Pyramid-app-v2 (Track B
   proper) is the migration of pyramid functionality onto this substrate; that
   migration is future work.
+- It does **not live-wire storage or relay markets in V1.** Their neutral
+  substrate types remain for downstream V2 work.
 - It does **not implement the wire-graph-peering bridge protocol.** The bridge
   between Sovereign Graphs is Wave 3+ work; foundation has the cross-graph
   identity types, but the bridge runtime lives in deployments.
