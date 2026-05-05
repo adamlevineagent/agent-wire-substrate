@@ -3,12 +3,25 @@ use agent_wire_substrate_node::{
     observe_l6_stability, run_d3_live_compute_settlement, run_l6_recovery_injection_scenarios,
     run_l6_stability_driver, run_layer3_single_graph_synthetic,
     run_layer4_two_graph_bridged_synthetic, run_layer5_live_llm_compute_roundtrip,
-    run_live_contribution_sync, run_mainnet_auth,
+    run_live_contribution_sync, run_mainnet_auth, run_v1_node_cli,
 };
 
 fn main() {
-    let command = std::env::args().nth(1);
-    match command.as_deref() {
+    let args = std::env::args().skip(1).collect::<Vec<_>>();
+    match run_v1_node_cli(&args) {
+        Ok(Some(output)) => {
+            println!("{output}");
+            return;
+        }
+        Ok(None) => {}
+        Err(error) => {
+            eprintln!("failed to run V1 node command: {error}");
+            std::process::exit(1);
+        }
+    }
+
+    let command = args.first().map(String::as_str);
+    match command {
         Some("substrate-node-demo") => match build_parity_demo() {
             Ok(report) => print!("{}", report.to_markdown()),
             Err(error) => {
@@ -78,6 +91,18 @@ fn main() {
             println!("agent-wire-substrate-node");
             println!();
             println!("Commands:");
+            println!(
+                "  surface                      Print the V1 CLI/MCP/HTTP/maintenance manifest"
+            );
+            println!("  identity signup|login|status Print typed identity protocol binding");
+            println!("  chain compile <chain.yaml>   Compile a canonical Wire action chain");
+            println!("  chain execute <chain.yaml>   Compile and locally route an action chain");
+            println!("  chain quote <chain.yaml>     Produce a quote-mode compiled plan");
+            println!("  compute offer|quote|purchase|fill|jobs");
+            println!("                               Print typed compute protocol binding");
+            println!("  mcp manifest                 Print V1 MCP tool bindings");
+            println!("  http manifest                Print V1 HTTP route bindings");
+            println!("  maintenance run-once         Fire local maintenance tasks and log stubs");
             println!("  substrate-node-demo         Run the substrate-tier dry-run parity demo");
             println!("  auth                         Validate and persist mainnet auth state");
             println!(

@@ -8,6 +8,7 @@ rust-version.workspace = true
 description = "CLI validation and reference-node binary for the Agent Wire substrate stack."
 
 [dependencies]
+agent-wire-compiler.workspace = true
 agent-wire-contracts.workspace = true
 agent-wire-compute-market.workspace = true
 agent-wire-foundation.workspace = true
@@ -17,6 +18,7 @@ agent-wire-substrate.workspace = true
 agent-wire-transport-cloudflare.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+serde_yaml = "0.9"
 time.workspace = true
 ureq = { version = "2", features = ["json"] }
 uuid.workspace = true

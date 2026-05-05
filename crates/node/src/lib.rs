@@ -13,6 +13,7 @@ pub mod layer3_synthetic;
 pub mod layer4_synthetic;
 pub mod layer5_live_llm;
 pub mod mainnet_auth;
+pub mod v1_surface;
 
 pub use agent_wire_substrate::{
     build_parity_demo, compose_substrate_node, parity_demo_assertions, substrate_stack_name,
@@ -50,6 +51,14 @@ pub use layer5_live_llm::{
 pub use mainnet_auth::{
     run_mainnet_auth, MainnetAuthReport, MainnetAuthStatus, MainnetAuthSubtest, MainnetIdentity,
 };
+pub use v1_surface::{
+    compile_chain_definition, compile_chain_file, dispatch_http_route, dispatch_maintenance_task,
+    dispatch_mcp_tool, execute_compiled_plan, load_action_definition, run_maintenance_once,
+    run_v1_node_cli, CliSurface, HttpSurface, MaintenanceImplementation, MaintenanceSurface,
+    McpSurface, V1CliCommand, V1ExecutedStep, V1ExecutionReport, V1MaintenanceRunReport,
+    V1NodeSurfaceError, V1NodeSurfaceManifest, V1ProtocolBinding, V1ProtocolDispatch,
+    V1ProtocolStatus, V1StepExecutionStatus, V1SurfaceDisposition,
+};
 
 #[cfg(test)]
 mod tests {
@@ -68,6 +77,20 @@ mod tests {
         assert_eq!(runtime.compiler.logical_leaf_count(), 77);
         assert!(runtime.config.opt_in.compute_provider);
         assert!(runtime.config.opt_in.compute_requester);
+    }
+
+    #[test]
+    fn v1_node_surface_exposes_cli_mcp_http_and_maintenance_bindings() {
+        let manifest = V1NodeSurfaceManifest::v1();
+
+        assert_eq!(manifest.mcp_tools.len(), 55);
+        assert_eq!(manifest.http_routes.len(), 56);
+        assert_eq!(manifest.implemented_maintenance_count(), 8);
+        assert_eq!(manifest.stubbed_maintenance_count(), 4);
+        assert!(manifest
+            .cli
+            .iter()
+            .any(|surface| surface.command == V1CliCommand::ChainCompile));
     }
 
     #[test]

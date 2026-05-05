@@ -160,6 +160,8 @@ pub mod canonical_ops {
         StepModifier,
         InvocationMode,
         MaintenanceTask,
+        McpTool,
+        HttpRoute,
     }
 
     pub trait CanonicalOp: sealed::Sealed {
@@ -175,6 +177,11 @@ pub mod canonical_ops {
     pub trait InvocationOperation: CanonicalOp {}
     pub trait MaintenanceOperation: CanonicalOp {
         fn cron_hint(&self) -> &'static str;
+    }
+    pub trait McpOperation: CanonicalOp {}
+    pub trait HttpOperation: CanonicalOp {
+        fn method(&self) -> HttpMethod;
+        fn path(&self) -> &'static str;
     }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -610,6 +617,441 @@ pub mod canonical_ops {
         }
     }
 
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum McpTool {
+        WireAccessContribution,
+        WireActionChain,
+        WireActionInvoke,
+        WireAgentManage,
+        WireBalance,
+        WireBrowse,
+        WireCircleAdmin,
+        WireCircles,
+        WireContribute,
+        WireCorpora,
+        WireCorrect,
+        WireDiscover,
+        WireDocuments,
+        WireEarnings,
+        WireEventSubscriptions,
+        WireFeedback,
+        WireFlag,
+        WireGames,
+        WireGraph,
+        WireHandles,
+        WireIdentify,
+        WireInspect,
+        WireLegal,
+        WireListManage,
+        WireMarket,
+        WireMe,
+        WireMesh,
+        WireMeshBoard,
+        WireMeshIntent,
+        WireMeshStatus,
+        WireMessages,
+        WireMyContributions,
+        WireNotifications,
+        WireOpportunities,
+        WirePatrol,
+        WirePearlDive,
+        WirePins,
+        WirePrepare,
+        WirePulse,
+        WireQuery,
+        WireQueryRipePredictions,
+        WireRate,
+        WireRead,
+        WireReadDocument,
+        WireRequests,
+        WireResolveHandle,
+        WireRetract,
+        WireRoster,
+        WireStatus,
+        WireSubscriptions,
+        WireSupersede,
+        WireSync,
+        WireTasks,
+        WireTemplates,
+        WireWait,
+    }
+
+    impl McpTool {
+        pub const ALL: [Self; 55] = [
+            Self::WireAccessContribution,
+            Self::WireActionChain,
+            Self::WireActionInvoke,
+            Self::WireAgentManage,
+            Self::WireBalance,
+            Self::WireBrowse,
+            Self::WireCircleAdmin,
+            Self::WireCircles,
+            Self::WireContribute,
+            Self::WireCorpora,
+            Self::WireCorrect,
+            Self::WireDiscover,
+            Self::WireDocuments,
+            Self::WireEarnings,
+            Self::WireEventSubscriptions,
+            Self::WireFeedback,
+            Self::WireFlag,
+            Self::WireGames,
+            Self::WireGraph,
+            Self::WireHandles,
+            Self::WireIdentify,
+            Self::WireInspect,
+            Self::WireLegal,
+            Self::WireListManage,
+            Self::WireMarket,
+            Self::WireMe,
+            Self::WireMesh,
+            Self::WireMeshBoard,
+            Self::WireMeshIntent,
+            Self::WireMeshStatus,
+            Self::WireMessages,
+            Self::WireMyContributions,
+            Self::WireNotifications,
+            Self::WireOpportunities,
+            Self::WirePatrol,
+            Self::WirePearlDive,
+            Self::WirePins,
+            Self::WirePrepare,
+            Self::WirePulse,
+            Self::WireQuery,
+            Self::WireQueryRipePredictions,
+            Self::WireRate,
+            Self::WireRead,
+            Self::WireReadDocument,
+            Self::WireRequests,
+            Self::WireResolveHandle,
+            Self::WireRetract,
+            Self::WireRoster,
+            Self::WireStatus,
+            Self::WireSubscriptions,
+            Self::WireSupersede,
+            Self::WireSync,
+            Self::WireTasks,
+            Self::WireTemplates,
+            Self::WireWait,
+        ];
+    }
+
+    impl sealed::Sealed for McpTool {}
+    impl McpOperation for McpTool {}
+    impl CanonicalOp for McpTool {
+        fn name(&self) -> &'static str {
+            match self {
+                Self::WireAccessContribution => "wire_access_contribution",
+                Self::WireActionChain => "wire_action_chain",
+                Self::WireActionInvoke => "wire_action_invoke",
+                Self::WireAgentManage => "wire_agent_manage",
+                Self::WireBalance => "wire_balance",
+                Self::WireBrowse => "wire_browse",
+                Self::WireCircleAdmin => "wire_circle_admin",
+                Self::WireCircles => "wire_circles",
+                Self::WireContribute => "wire_contribute",
+                Self::WireCorpora => "wire_corpora",
+                Self::WireCorrect => "wire_correct",
+                Self::WireDiscover => "wire_discover",
+                Self::WireDocuments => "wire_documents",
+                Self::WireEarnings => "wire_earnings",
+                Self::WireEventSubscriptions => "wire_event_subscriptions",
+                Self::WireFeedback => "wire_feedback",
+                Self::WireFlag => "wire_flag",
+                Self::WireGames => "wire_games",
+                Self::WireGraph => "wire_graph",
+                Self::WireHandles => "wire_handles",
+                Self::WireIdentify => "wire_identify",
+                Self::WireInspect => "wire_inspect",
+                Self::WireLegal => "wire_legal",
+                Self::WireListManage => "wire_list_manage",
+                Self::WireMarket => "wire_market",
+                Self::WireMe => "wire_me",
+                Self::WireMesh => "wire_mesh",
+                Self::WireMeshBoard => "wire_mesh_board",
+                Self::WireMeshIntent => "wire_mesh_intent",
+                Self::WireMeshStatus => "wire_mesh_status",
+                Self::WireMessages => "wire_messages",
+                Self::WireMyContributions => "wire_my_contributions",
+                Self::WireNotifications => "wire_notifications",
+                Self::WireOpportunities => "wire_opportunities",
+                Self::WirePatrol => "wire_patrol",
+                Self::WirePearlDive => "wire_pearl_dive",
+                Self::WirePins => "wire_pins",
+                Self::WirePrepare => "wire_prepare",
+                Self::WirePulse => "wire_pulse",
+                Self::WireQuery => "wire_query",
+                Self::WireQueryRipePredictions => "wire_query_ripe_predictions",
+                Self::WireRate => "wire_rate",
+                Self::WireRead => "wire_read",
+                Self::WireReadDocument => "wire_read_document",
+                Self::WireRequests => "wire_requests",
+                Self::WireResolveHandle => "wire_resolve_handle",
+                Self::WireRetract => "wire_retract",
+                Self::WireRoster => "wire_roster",
+                Self::WireStatus => "wire_status",
+                Self::WireSubscriptions => "wire_subscriptions",
+                Self::WireSupersede => "wire_supersede",
+                Self::WireSync => "wire_sync",
+                Self::WireTasks => "wire_tasks",
+                Self::WireTemplates => "wire_templates",
+                Self::WireWait => "wire_wait",
+            }
+        }
+
+        fn family(&self) -> CanonicalOpFamily {
+            CanonicalOpFamily::McpTool
+        }
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum HttpMethod {
+        Get,
+        Post,
+        Put,
+        Delete,
+    }
+
+    impl HttpMethod {
+        pub fn as_str(&self) -> &'static str {
+            match self {
+                Self::Get => "GET",
+                Self::Post => "POST",
+                Self::Put => "PUT",
+                Self::Delete => "DELETE",
+            }
+        }
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum HttpRoute {
+        AgentApprove,
+        AgentRevoke,
+        ComputeActivity,
+        ComputeCallbackJob,
+        ComputeFill,
+        ComputeJobById,
+        ComputeJobs,
+        ComputeMarketSurface,
+        ComputeMarketSurfaceHistory,
+        ComputeMarketSurfaceStream,
+        ComputeMatch,
+        ComputeOfferById,
+        ComputeOfferHistory,
+        ComputeOffers,
+        ComputePurchase,
+        ComputeQueueMirror,
+        ComputeQueueMirrorNode,
+        ComputeQuote,
+        Contribute,
+        HelpTopic,
+        Mcp,
+        Me,
+        NodeBalance,
+        NodeHeartbeat,
+        NodeRegister,
+        NodeRegisterWithSession,
+        NodeTunnel,
+        Register,
+        Reputation,
+        Retract,
+        WireAccessContribution,
+        WireActionChain,
+        WireActionInvoke,
+        WireAgentResume,
+        WireContribute,
+        WireContributionById,
+        WireContributionCorrect,
+        WireContributionSupersede,
+        WireDeviceAuth,
+        WireEventsStream,
+        WireFlag,
+        WireHandles,
+        WireHandlesCheck,
+        WireMaintenance,
+        WireMaintenanceTick,
+        WireMessages,
+        WireMessageById,
+        WirePrepare,
+        WirePulse,
+        WireQuery,
+        WireRate,
+        WireRoster,
+        WireTasks,
+        WireTaskById,
+        WireTemplatesApply,
+        WireWait,
+    }
+
+    impl HttpRoute {
+        pub const ALL: [Self; 56] = [
+            Self::AgentApprove,
+            Self::AgentRevoke,
+            Self::ComputeActivity,
+            Self::ComputeCallbackJob,
+            Self::ComputeFill,
+            Self::ComputeJobById,
+            Self::ComputeJobs,
+            Self::ComputeMarketSurface,
+            Self::ComputeMarketSurfaceHistory,
+            Self::ComputeMarketSurfaceStream,
+            Self::ComputeMatch,
+            Self::ComputeOfferById,
+            Self::ComputeOfferHistory,
+            Self::ComputeOffers,
+            Self::ComputePurchase,
+            Self::ComputeQueueMirror,
+            Self::ComputeQueueMirrorNode,
+            Self::ComputeQuote,
+            Self::Contribute,
+            Self::HelpTopic,
+            Self::Mcp,
+            Self::Me,
+            Self::NodeBalance,
+            Self::NodeHeartbeat,
+            Self::NodeRegister,
+            Self::NodeRegisterWithSession,
+            Self::NodeTunnel,
+            Self::Register,
+            Self::Reputation,
+            Self::Retract,
+            Self::WireAccessContribution,
+            Self::WireActionChain,
+            Self::WireActionInvoke,
+            Self::WireAgentResume,
+            Self::WireContribute,
+            Self::WireContributionById,
+            Self::WireContributionCorrect,
+            Self::WireContributionSupersede,
+            Self::WireDeviceAuth,
+            Self::WireEventsStream,
+            Self::WireFlag,
+            Self::WireHandles,
+            Self::WireHandlesCheck,
+            Self::WireMaintenance,
+            Self::WireMaintenanceTick,
+            Self::WireMessages,
+            Self::WireMessageById,
+            Self::WirePrepare,
+            Self::WirePulse,
+            Self::WireQuery,
+            Self::WireRate,
+            Self::WireRoster,
+            Self::WireTasks,
+            Self::WireTaskById,
+            Self::WireTemplatesApply,
+            Self::WireWait,
+        ];
+    }
+
+    impl sealed::Sealed for HttpRoute {}
+    impl HttpOperation for HttpRoute {
+        fn method(&self) -> HttpMethod {
+            match self {
+                Self::ComputeJobById
+                | Self::ComputeJobs
+                | Self::ComputeMarketSurface
+                | Self::ComputeMarketSurfaceHistory
+                | Self::ComputeMarketSurfaceStream
+                | Self::ComputeOfferById
+                | Self::ComputeOfferHistory
+                | Self::ComputeOffers
+                | Self::ComputeQueueMirror
+                | Self::ComputeQueueMirrorNode
+                | Self::HelpTopic
+                | Self::Me
+                | Self::NodeBalance
+                | Self::Reputation
+                | Self::WireContributionById
+                | Self::WireEventsStream
+                | Self::WireHandles
+                | Self::WireHandlesCheck
+                | Self::WireMaintenance
+                | Self::WireMessageById
+                | Self::WireMessages
+                | Self::WirePulse
+                | Self::WireRoster
+                | Self::WireTaskById
+                | Self::WireTasks => HttpMethod::Get,
+                _ => HttpMethod::Post,
+            }
+        }
+
+        fn path(&self) -> &'static str {
+            match self {
+                Self::AgentApprove => "/agent/approve",
+                Self::AgentRevoke => "/agent/revoke",
+                Self::ComputeActivity => "/compute/activity",
+                Self::ComputeCallbackJob => "/compute/callback/{job_id}",
+                Self::ComputeFill => "/compute/fill",
+                Self::ComputeJobById => "/compute/jobs/{job_id}",
+                Self::ComputeJobs => "/compute/jobs",
+                Self::ComputeMarketSurface => "/compute/market-surface",
+                Self::ComputeMarketSurfaceHistory => "/compute/market-surface/history",
+                Self::ComputeMarketSurfaceStream => "/compute/market-surface/stream",
+                Self::ComputeMatch => "/compute/match",
+                Self::ComputeOfferById => "/compute/offers/{offer_id}",
+                Self::ComputeOfferHistory => "/compute/offers/{offer_id}/history",
+                Self::ComputeOffers => "/compute/offers",
+                Self::ComputePurchase => "/compute/purchase",
+                Self::ComputeQueueMirror => "/compute/queue-mirror",
+                Self::ComputeQueueMirrorNode => "/compute/queue-mirror/{node_id}",
+                Self::ComputeQuote => "/compute/quote",
+                Self::Contribute => "/contribute",
+                Self::HelpTopic => "/help/{topic}",
+                Self::Mcp => "/mcp",
+                Self::Me => "/me",
+                Self::NodeBalance => "/node/balance",
+                Self::NodeHeartbeat => "/node/heartbeat",
+                Self::NodeRegister => "/node/register",
+                Self::NodeRegisterWithSession => "/node/register-with-session",
+                Self::NodeTunnel => "/node/tunnel",
+                Self::Register => "/register",
+                Self::Reputation => "/reputation",
+                Self::Retract => "/retract",
+                Self::WireAccessContribution => "/wire/contribution/{id}",
+                Self::WireActionChain => "/wire/action/chain",
+                Self::WireActionInvoke => "/wire/action/invoke",
+                Self::WireAgentResume => "/wire/agent/resume",
+                Self::WireContribute => "/wire/contribute",
+                Self::WireContributionById => "/wire/contributions/{id}",
+                Self::WireContributionCorrect => "/wire/contributions/{id}/correct",
+                Self::WireContributionSupersede => "/wire/contributions/{id}/supersede",
+                Self::WireDeviceAuth => "/wire/device-auth",
+                Self::WireEventsStream => "/wire/events/stream",
+                Self::WireFlag => "/wire/flag",
+                Self::WireHandles => "/wire/handles",
+                Self::WireHandlesCheck => "/wire/handles/check",
+                Self::WireMaintenance => "/wire/maintenance",
+                Self::WireMaintenanceTick => "/wire/maintenance/tick",
+                Self::WireMessages => "/wire/messages",
+                Self::WireMessageById => "/wire/messages/{messageIdentifier}",
+                Self::WirePrepare => "/wire/prepare",
+                Self::WirePulse => "/wire/pulse",
+                Self::WireQuery => "/wire/query",
+                Self::WireRate => "/wire/rate",
+                Self::WireRoster => "/wire/roster",
+                Self::WireTasks => "/wire/tasks",
+                Self::WireTaskById => "/wire/tasks/{taskId}",
+                Self::WireTemplatesApply => "/wire/templates/apply",
+                Self::WireWait => "/wire/wait",
+            }
+        }
+    }
+
+    impl CanonicalOp for HttpRoute {
+        fn name(&self) -> &'static str {
+            self.path()
+        }
+
+        fn family(&self) -> CanonicalOpFamily {
+            CanonicalOpFamily::HttpRoute
+        }
+    }
+
     pub fn is_foundation_registered_name(value: &str) -> bool {
         CompilerOp::ALL.iter().any(|op| op.name() == value)
             || LlmPrimitive::ALL.iter().any(|op| op.name() == value)
@@ -618,6 +1060,8 @@ pub mod canonical_ops {
             || StepModifier::ALL.iter().any(|op| op.name() == value)
             || InvocationMode::ALL.iter().any(|op| op.name() == value)
             || MaintenanceTask::ALL.iter().any(|op| op.name() == value)
+            || McpTool::ALL.iter().any(|op| op.name() == value)
+            || HttpRoute::ALL.iter().any(|op| op.name() == value)
     }
 
     mod sealed {
@@ -676,14 +1120,19 @@ mod tests {
     #[test]
     fn canonical_ops_are_foundation_registered() {
         use canonical_ops::{
-            CanonicalOp, CompilerOp, MaintenanceOperation, MaintenanceTask, TaskPrimitive,
-            WirePrimitive,
+            CanonicalOp, CompilerOp, HttpOperation, HttpRoute, MaintenanceOperation,
+            MaintenanceTask, McpTool, TaskPrimitive, WirePrimitive,
         };
 
         assert_eq!(CompilerOp::Llm.name(), "llm");
         assert_eq!(WirePrimitive::Contribute.name(), "wire.contribute");
         assert_eq!(WirePrimitive::Retract.name(), "wire.retract");
         assert_eq!(TaskPrimitive::Claim.name(), "task.claim");
+        assert_eq!(McpTool::WireActionInvoke.name(), "wire_action_invoke");
+        assert_eq!(HttpRoute::ComputeQuote.method().as_str(), "POST");
+        assert_eq!(HttpRoute::ComputeQuote.path(), "/compute/quote");
+        assert_eq!(McpTool::ALL.len(), 55);
+        assert_eq!(HttpRoute::ALL.len(), 56);
         assert_eq!(
             MaintenanceTask::WorkerLivenessCheck.cron_hint(),
             "every_5_minutes"
@@ -693,6 +1142,10 @@ mod tests {
         ));
         assert!(canonical_ops::is_foundation_registered_name(
             "task.complete"
+        ));
+        assert!(canonical_ops::is_foundation_registered_name("wire_wait"));
+        assert!(canonical_ops::is_foundation_registered_name(
+            "/compute/fill"
         ));
     }
 
