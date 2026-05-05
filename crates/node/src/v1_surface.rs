@@ -13,6 +13,11 @@ use agent_wire_foundation::canonical_ops::{
 use agent_wire_foundation::{CrossGraphRef, FoundationError, IdempotencyKey};
 use serde::Serialize;
 
+use crate::v1_runtime::{
+    default_state_dir, dispatch_http_request, dispatch_mcp_request, run_http_loopback_smoke,
+    run_v1_runtime_smoke, V1HttpRequest, V1IdentityStore, V1MaintenanceScheduler,
+};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum V1SurfaceDisposition {
@@ -38,16 +43,23 @@ pub enum V1CliCommand {
     ComputeFill,
     ComputeJobs,
     McpManifest,
+    McpDispatch,
     HttpManifest,
+    HttpDispatch,
+    HttpSmoke,
+    IdentityPersist,
     MaintenanceRunOnce,
+    MaintenanceScheduleTick,
+    RuntimeSmoke,
 }
 
 impl V1CliCommand {
-    pub const ALL: [Self; 15] = [
+    pub const ALL: [Self; 21] = [
         Self::SurfaceManifest,
         Self::IdentitySignup,
         Self::IdentityLogin,
         Self::IdentityStatus,
+        Self::IdentityPersist,
         Self::ChainCompile,
         Self::ChainExecute,
         Self::ChainQuote,
@@ -57,8 +69,13 @@ impl V1CliCommand {
         Self::ComputeFill,
         Self::ComputeJobs,
         Self::McpManifest,
+        Self::McpDispatch,
         Self::HttpManifest,
+        Self::HttpDispatch,
+        Self::HttpSmoke,
         Self::MaintenanceRunOnce,
+        Self::MaintenanceScheduleTick,
+        Self::RuntimeSmoke,
     ];
 
     pub fn name(&self) -> &'static str {
@@ -76,8 +93,14 @@ impl V1CliCommand {
             Self::ComputeFill => "compute fill",
             Self::ComputeJobs => "compute jobs",
             Self::McpManifest => "mcp manifest",
+            Self::McpDispatch => "mcp dispatch",
             Self::HttpManifest => "http manifest",
+            Self::HttpDispatch => "http dispatch",
+            Self::HttpSmoke => "http smoke",
+            Self::IdentityPersist => "identity persist",
             Self::MaintenanceRunOnce => "maintenance run-once",
+            Self::MaintenanceScheduleTick => "maintenance schedule-tick",
+            Self::RuntimeSmoke => "runtime smoke",
         }
     }
 }
@@ -587,6 +610,7 @@ pub fn run_v1_node_cli(args: &[String]) -> Result<Option<String>, V1NodeSurfaceE
         "chain" => run_chain_cli(&args[1..]).map(Some),
         "identity" => run_identity_cli(&args[1..]).map(Some),
         "compute" => run_compute_cli(&args[1..]).map(Some),
+        "runtime" => run_runtime_cli(&args[1..]).map(Some),
         _ => Ok(None),
     }
 }
@@ -594,6 +618,10 @@ pub fn run_v1_node_cli(args: &[String]) -> Result<Option<String>, V1NodeSurfaceE
 fn run_mcp_cli(args: &[String]) -> Result<String, V1NodeSurfaceError> {
     match args.first().map(String::as_str) {
         Some("manifest") | None => to_pretty_json(&V1NodeSurfaceManifest::v1().mcp_tools),
+        Some("dispatch") => {
+            let tool = required_value(args.get(1), "mcp dispatch <tool_name>")?;
+            to_pretty_json(&dispatch_mcp_request(tool).map_err(V1NodeSurfaceError::Runtime)?)
+        }
         Some(other) => Err(V1NodeSurfaceError::UnknownCommand(format!("mcp {other}"))),
     }
 }
@@ -601,6 +629,17 @@ fn run_mcp_cli(args: &[String]) -> Result<String, V1NodeSurfaceError> {
 fn run_http_cli(args: &[String]) -> Result<String, V1NodeSurfaceError> {
     match args.first().map(String::as_str) {
         Some("manifest") | None => to_pretty_json(&V1NodeSurfaceManifest::v1().http_routes),
+        Some("dispatch") => {
+            let method = required_value(args.get(1), "http dispatch <method> <path>")?;
+            let path = required_value(args.get(2), "http dispatch <method> <path>")?;
+            to_pretty_json(
+                &dispatch_http_request(&V1HttpRequest::new(method, path))
+                    .map_err(V1NodeSurfaceError::Runtime)?,
+            )
+        }
+        Some("smoke") => {
+            to_pretty_json(&run_http_loopback_smoke().map_err(V1NodeSurfaceError::Runtime)?)
+        }
         Some(other) => Err(V1NodeSurfaceError::UnknownCommand(format!("http {other}"))),
     }
 }
@@ -608,6 +647,9 @@ fn run_http_cli(args: &[String]) -> Result<String, V1NodeSurfaceError> {
 fn run_maintenance_cli(args: &[String]) -> Result<String, V1NodeSurfaceError> {
     match args.first().map(String::as_str) {
         Some("run-once") | Some("tick") | None => to_pretty_json(&run_maintenance_once()),
+        Some("schedule-tick") => {
+            to_pretty_json(&V1MaintenanceScheduler::due_now(1_000).tick(1_000))
+        }
         Some(other) => Err(V1NodeSurfaceError::UnknownCommand(format!(
             "maintenance {other}"
         ))),
@@ -640,9 +682,50 @@ fn run_identity_cli(args: &[String]) -> Result<String, V1NodeSurfaceError> {
     match args.first().map(String::as_str) {
         Some("signup") => to_pretty_json(&dispatch_http_route(HttpRoute::Register)),
         Some("login") => to_pretty_json(&dispatch_mcp_tool(McpTool::WireIdentify)),
+        Some("persist") => {
+            let state_dir = args
+                .get(1)
+                .map(Path::new)
+                .map(Path::to_path_buf)
+                .unwrap_or_else(default_state_dir);
+            let config = agent_wire_substrate::NodeConfig::demo()?;
+            to_pretty_json(
+                &V1IdentityStore::new(state_dir)
+                    .persist(&config, 1_000)
+                    .map_err(V1NodeSurfaceError::Runtime)?,
+            )
+        }
+        Some("load") => {
+            let state_dir = args
+                .get(1)
+                .map(Path::new)
+                .map(Path::to_path_buf)
+                .unwrap_or_else(default_state_dir);
+            to_pretty_json(
+                &V1IdentityStore::new(state_dir)
+                    .load()
+                    .map_err(V1NodeSurfaceError::Runtime)?,
+            )
+        }
         Some("status") | None => to_pretty_json(&dispatch_mcp_tool(McpTool::WireStatus)),
         Some(other) => Err(V1NodeSurfaceError::UnknownCommand(format!(
             "identity {other}"
+        ))),
+    }
+}
+
+fn run_runtime_cli(args: &[String]) -> Result<String, V1NodeSurfaceError> {
+    match args.first().map(String::as_str) {
+        Some("smoke") | None => {
+            let state_dir = args
+                .get(1)
+                .map(Path::new)
+                .map(Path::to_path_buf)
+                .unwrap_or_else(default_state_dir);
+            to_pretty_json(&run_v1_runtime_smoke(&state_dir).map_err(V1NodeSurfaceError::Runtime)?)
+        }
+        Some(other) => Err(V1NodeSurfaceError::UnknownCommand(format!(
+            "runtime {other}"
         ))),
     }
 }
@@ -684,6 +767,15 @@ fn required_path<'a>(
         .ok_or(V1NodeSurfaceError::MissingArgument(usage))
 }
 
+fn required_value<'a>(
+    value: Option<&'a String>,
+    usage: &'static str,
+) -> Result<&'a str, V1NodeSurfaceError> {
+    value
+        .map(String::as_str)
+        .ok_or(V1NodeSurfaceError::MissingArgument(usage))
+}
+
 fn to_pretty_json<T: Serialize>(value: &T) -> Result<String, V1NodeSurfaceError> {
     serde_json::to_string_pretty(value).map_err(|error| V1NodeSurfaceError::Json(error.to_string()))
 }
@@ -694,6 +786,7 @@ pub enum V1NodeSurfaceError {
     Json(String),
     Yaml(String),
     Compile(String),
+    Runtime(String),
     Foundation(FoundationError),
     MissingArgument(&'static str),
     UnknownCommand(String),
@@ -706,6 +799,7 @@ impl fmt::Display for V1NodeSurfaceError {
             Self::Json(message) => write!(formatter, "JSON error: {message}"),
             Self::Yaml(message) => write!(formatter, "YAML error: {message}"),
             Self::Compile(message) => write!(formatter, "compile error: {message}"),
+            Self::Runtime(message) => write!(formatter, "runtime error: {message}"),
             Self::Foundation(error) => write!(formatter, "{error}"),
             Self::MissingArgument(usage) => write!(formatter, "missing argument: {usage}"),
             Self::UnknownCommand(command) => {
@@ -744,7 +838,7 @@ mod tests {
     fn manifest_exposes_v1_protocol_surface_without_runtime_strings() {
         let manifest = V1NodeSurfaceManifest::v1();
 
-        assert_eq!(manifest.cli.len(), 15);
+        assert_eq!(manifest.cli.len(), 21);
         assert_eq!(manifest.mcp_tools.len(), 55);
         assert_eq!(manifest.http_routes.len(), 56);
         assert_eq!(manifest.maintenance_tasks.len(), 12);
@@ -758,6 +852,10 @@ mod tests {
             .http_routes
             .iter()
             .any(|surface| surface.route == HttpRoute::ComputeQuote));
+        assert!(manifest
+            .cli
+            .iter()
+            .any(|surface| surface.command == V1CliCommand::RuntimeSmoke));
     }
 
     #[test]

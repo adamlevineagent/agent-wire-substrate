@@ -13,6 +13,7 @@ pub mod layer3_synthetic;
 pub mod layer4_synthetic;
 pub mod layer5_live_llm;
 pub mod mainnet_auth;
+pub mod v1_runtime;
 pub mod v1_surface;
 
 pub use agent_wire_substrate::{
@@ -51,6 +52,12 @@ pub use layer5_live_llm::{
 pub use mainnet_auth::{
     run_mainnet_auth, MainnetAuthReport, MainnetAuthStatus, MainnetAuthSubtest, MainnetIdentity,
 };
+pub use v1_runtime::{
+    default_state_dir, dispatch_http_request, dispatch_mcp_request, run_http_loopback_smoke,
+    run_v1_runtime_smoke, V1HttpLoopbackSmoke, V1HttpRequest, V1IdentityStore,
+    V1IdentityStoreReport, V1ListenerDispatchReport, V1ListenerProtocol, V1MaintenanceScheduler,
+    V1PersistedIdentity, V1RuntimeSmokeReport, V1ScheduledMaintenance, V1SchedulerTickReport,
+};
 pub use v1_surface::{
     compile_chain_definition, compile_chain_file, dispatch_http_route, dispatch_maintenance_task,
     dispatch_mcp_tool, execute_compiled_plan, load_action_definition, run_maintenance_once,
@@ -83,6 +90,7 @@ mod tests {
     fn v1_node_surface_exposes_cli_mcp_http_and_maintenance_bindings() {
         let manifest = V1NodeSurfaceManifest::v1();
 
+        assert_eq!(manifest.cli.len(), 21);
         assert_eq!(manifest.mcp_tools.len(), 55);
         assert_eq!(manifest.http_routes.len(), 56);
         assert_eq!(manifest.implemented_maintenance_count(), 8);

@@ -95,14 +95,28 @@ fn main() {
                 "  surface                      Print the V1 CLI/MCP/HTTP/maintenance manifest"
             );
             println!("  identity signup|login|status Print typed identity protocol binding");
+            println!("  identity persist [state-dir] Persist demo identity state atomically");
+            println!("  identity load [state-dir]    Load persisted V1 identity state");
             println!("  chain compile <chain.yaml>   Compile a canonical Wire action chain");
             println!("  chain execute <chain.yaml>   Compile and locally route an action chain");
             println!("  chain quote <chain.yaml>     Produce a quote-mode compiled plan");
             println!("  compute offer|quote|purchase|fill|jobs");
             println!("                               Print typed compute protocol binding");
             println!("  mcp manifest                 Print V1 MCP tool bindings");
+            println!(
+                "  mcp dispatch <tool>          Dispatch one MCP request through typed registry"
+            );
             println!("  http manifest                Print V1 HTTP route bindings");
+            println!("  http dispatch <method> <path>");
+            println!(
+                "                               Dispatch one HTTP request through typed registry"
+            );
+            println!("  http smoke                   Run one loopback HTTP listener smoke");
             println!("  maintenance run-once         Fire local maintenance tasks and log stubs");
+            println!("  maintenance schedule-tick    Run one typed maintenance scheduler tick");
+            println!(
+                "  runtime smoke [state-dir]    Smoke HTTP/MCP listeners, identity, scheduler"
+            );
             println!("  substrate-node-demo         Run the substrate-tier dry-run parity demo");
             println!("  auth                         Validate and persist mainnet auth state");
             println!(
