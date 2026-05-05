@@ -5,7 +5,8 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-description = "Umbrella composition library for the Agent Wire substrate node stack."
+readme = "README.md"
+description = "Umbrella composition library for the agent-wire.com substrate node stack."
 
 [dependencies]
 agent-wire-compute-market.workspace = true

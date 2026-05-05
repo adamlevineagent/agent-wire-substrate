@@ -5,7 +5,8 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-description = "Cloudflare transport driver implementation for Agent Wire substrate nodes."
+readme = "README.md"
+description = "Cloudflare-tunnel transport driver for the agent-wire.com substrate."
 
 [dependencies]
 agent-wire-foundation.workspace = true

@@ -5,7 +5,8 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-description = "Storage-market offer, pin, retention, and settlement primitives for Agent Wire substrate nodes."
+readme = "README.md"
+description = "Storage-market primitives for the agent-wire.com substrate."
 
 [dependencies]
 agent-wire-foundation.workspace = true

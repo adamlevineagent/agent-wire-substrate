@@ -1,11 +1,12 @@
 [package]
 name = "agent-wire-compute-market"
-version = "0.1.0"
+version = "0.1.1"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-description = "Compute-market contract and dispatch primitives for Agent Wire substrate nodes."
+readme = "README.md"
+description = "Compute-market primitives for the agent-wire.com substrate."
 
 [dependencies]
 agent-wire-contracts.workspace = true

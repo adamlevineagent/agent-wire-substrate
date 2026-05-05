@@ -14,7 +14,7 @@ resolver = "2"
 [workspace.package]
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/adamlevineagent/agent-wire-substrate"
+repository = "https://github.com/agent-wire-com/agent-wire-substrate"
 rust-version = "1.78"
 
 [workspace.dependencies]

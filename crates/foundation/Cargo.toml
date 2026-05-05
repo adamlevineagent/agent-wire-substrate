@@ -1,11 +1,12 @@
 [package]
 name = "agent-wire-foundation"
-version = "0.1.0"
+version = "0.1.1"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-description = "Foundation identity, refs, economics, transport, sandbox, and vocabulary primitives for Agent Wire."
+readme = "README.md"
+description = "Foundation primitives (identity, refs, economics, transport, sandbox, vocabulary) for the agent-wire.com substrate."
 
 [dependencies]
 agent-wire-contracts.workspace = true

@@ -1,11 +1,12 @@
 [package]
 name = "agent-wire-contracts"
-version = "0.1.0"
+version = "0.1.1"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-description = "Wire-native contract DTOs and boundary primitives for Agent Wire substrate crates."
+readme = "README.md"
+description = "Wire-format types for the agent-wire.com substrate."
 
 [dependencies]
 serde.workspace = true
