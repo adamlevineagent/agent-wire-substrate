@@ -32,17 +32,24 @@ cargo run -p agent-wire-substrate-node -- surface
 
 ## Local State
 
-The node keeps local state under `~/.wire-node/state` by default.
+The node keeps local state under `~/.wire-node/state` by default. V1 local
+state uses the same wire-native document convention as canonical Wire docs:
+frontmatter, a typed YAML payload document, then optional operator prose. The
+foundation codec owns record-kind/schema validation, typed refs, timestamping,
+atomic writes, and private-file permissions for secret-bearing records.
 
 | File | Owner | Purpose |
 | --- | --- | --- |
-| `agent-wire-substrate-node-auth.json` | `auth` and live validation commands | Validated mainnet credential state. |
-| `v1-identity.json` | `identity persist/load` and `runtime smoke` | Compact V1 node identity state. |
+| `mainnet_auth_credential/agent-wire-substrate-node.md` | `auth` and live validation commands | Validated mainnet credential state; private `0600` on Unix. |
+| `identity_snapshot/v1-identity.md` | `identity persist/load` and `runtime smoke` | Compact V1 node identity state. |
+| `tunnel_state/<node-id>.md` | Cloudflare transport resolver | Persisted tunnel id, URL, token, and lifecycle status; private `0600` on Unix. |
 
 `AGENT_WIRE_NODE_STATE_DIR` overrides the V1 runtime state directory when no
 explicit state path is provided. `WIRE_AUTH_STATE_PATH` overrides the mainnet
 auth-state path. Token material must stay in the environment, token files, or
-the auth-state file; the CLI should not print it.
+private local-state docs; the CLI should not print it. The auth loader can read
+the legacy `agent-wire-substrate-node-auth.json` file and rewrites it as a
+wire-native local-state document after validation.
 
 ## Bootstrap Auth
 
@@ -89,7 +96,8 @@ agent-wire-substrate-node d3-live-compute-settlement
 agent-wire-substrate-node l6-stability-driver
 ```
 
-Required live secrets are read from environment only:
+Current live validation secrets are read from environment only until addendum
+B/C/D lands:
 
 - `OPENROUTER_API_KEY` for live model calls.
 - `OPENROUTER_BASE_URL`, `OPENROUTER_MODEL`, or `LAYER5_MODEL` to override

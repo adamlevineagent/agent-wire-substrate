@@ -44,10 +44,10 @@ agent-wire-substrate-node identity load ~/.wire-node/state
 ```
 
 `signup`, `login`, and `status` expose the typed protocol bindings. `persist`
-and `load` exercise the local V1 node identity store. The persisted file is
-`v1-identity.json` under the selected state directory and contains only compact
-node identity state: node id, operator handle, namespace, master key id, and
-endpoints.
+and `load` exercise the local V1 node identity store. The persisted document is
+`identity_snapshot/v1-identity.md` under the selected state directory and
+contains only compact node identity state: node id, operator handle, namespace,
+master key id, and endpoints.
 
 Live mainnet authentication remains the separate command:
 
@@ -57,7 +57,8 @@ agent-wire-substrate-node auth
 
 It uses `WIRE_API_TOKEN`, `WIRE_API_TOKEN_FILE`, `WIRE_DEVICE_SECRET`, or
 `WIRE_OPERATOR_EMAIL` as bootstrap input and persists validated auth state in
-`~/.wire-node/state/agent-wire-substrate-node-auth.json`.
+`~/.wire-node/state/mainnet_auth_credential/agent-wire-substrate-node.md`.
+The auth loader can migrate the legacy JSON auth file after validating it.
 
 ## Chain Compile And Execute
 

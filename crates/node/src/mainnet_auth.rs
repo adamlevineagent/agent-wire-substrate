@@ -1,8 +1,11 @@
 use std::env;
 use std::fs;
-use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
+use agent_wire_foundation::{
+    LocalStateRecordId, LocalStateRecordKind, LocalStateSchema, LocalStateSubject,
+    LocalStateSubjectKind, SecretMaterial, SecretString, TopicTag, WireHandle, WireNativeDocCodec,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use time::format_description::well_known::Rfc3339;
@@ -11,7 +14,9 @@ use uuid::Uuid;
 
 const DEFAULT_MAINNET_ENDPOINT: &str = "https://newsbleach.com/api/v1";
 const DEFAULT_AGENT_NAME: &str = "agent-wire-substrate-node";
-const DEFAULT_STATE_RELATIVE_PATH: &str = ".wire-node/state/agent-wire-substrate-node-auth.json";
+const DEFAULT_STATE_RELATIVE_PATH: &str =
+    ".wire-node/state/mainnet_auth_credential/agent-wire-substrate-node.md";
+const LEGACY_STATE_RELATIVE_PATH: &str = ".wire-node/state/agent-wire-substrate-node-auth.json";
 const AUTH_STATE_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -149,6 +154,65 @@ struct MainnetAuthState {
     updated_at: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct MainnetAuthStateDoc {
+    version: u32,
+    endpoint: String,
+    agent_name: String,
+    api_token: SecretMaterial,
+    agent_id: String,
+    pseudonym: String,
+    handle_path: String,
+    updated_at: String,
+}
+
+impl MainnetAuthStateDoc {
+    fn from_state(state: &MainnetAuthState) -> Result<Self, String> {
+        Ok(Self {
+            version: state.version,
+            endpoint: state.endpoint.clone(),
+            agent_name: state.agent_name.clone(),
+            api_token: SecretMaterial::Inline(
+                SecretString::new(state.api_token.clone())
+                    .map_err(|error| format!("failed to encode auth token: {error}"))?,
+            ),
+            agent_id: state.agent_id.clone(),
+            pseudonym: state.pseudonym.clone(),
+            handle_path: state.handle_path.clone(),
+            updated_at: state.updated_at.clone(),
+        })
+    }
+
+    fn into_state(self) -> Result<MainnetAuthState, String> {
+        let api_token = match self.api_token {
+            SecretMaterial::Inline(secret) => secret.expose_secret().to_owned(),
+            SecretMaterial::KeychainRef(handle) => {
+                return Err(format!(
+                    "keychain auth token `{}` is not supported by the V1 reference client yet",
+                    handle.as_str()
+                ))
+            }
+        };
+        Ok(MainnetAuthState {
+            version: self.version,
+            endpoint: self.endpoint,
+            agent_name: self.agent_name,
+            api_token,
+            agent_id: self.agent_id,
+            pseudonym: self.pseudonym,
+            handle_path: self.handle_path,
+            updated_at: self.updated_at,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LoadedMainnetAuthState {
+    state: MainnetAuthState,
+    path: PathBuf,
+    migrated_from_legacy: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct IssuedCredential {
     api_token: String,
@@ -206,18 +270,16 @@ pub(crate) fn load_persisted_mainnet_credential() -> Result<PersistedMainnetCred
         .unwrap_or_else(|_| DEFAULT_MAINNET_ENDPOINT.to_owned())
         .trim_end_matches('/')
         .to_owned();
-    let state_path = match env::var("WIRE_AUTH_STATE_PATH") {
-        Ok(path) if !path.trim().is_empty() => expand_home(path.trim())?,
-        _ => default_state_path()?,
+    let explicit_state_path = match env::var("WIRE_AUTH_STATE_PATH") {
+        Ok(path) if !path.trim().is_empty() => Some(expand_home(path.trim())?),
+        _ => None,
     };
-    let text = fs::read_to_string(&state_path).map_err(|error| {
-        format!(
-            "failed to read persisted mainnet auth state `{}`: {error}. Run `agent-wire-substrate-node auth` first.",
-            path_for_report(&state_path)
-        )
-    })?;
-    let state = serde_json::from_str::<MainnetAuthState>(&text)
-        .map_err(|error| format!("persisted mainnet auth state is invalid JSON: {error}"))?;
+    let candidates = match explicit_state_path {
+        Some(path) => vec![path],
+        None => vec![default_state_path()?, legacy_default_state_path()?],
+    };
+    let loaded = load_first_existing_state(&candidates)?;
+    let state = loaded.state;
     if state.endpoint != endpoint {
         return Err(format!(
             "persisted auth endpoint `{}` does not match selected endpoint `{endpoint}`",
@@ -241,7 +303,7 @@ pub(crate) fn load_persisted_mainnet_credential() -> Result<PersistedMainnetCred
             pseudonym: state.pseudonym,
             agent_id: state.agent_id,
         },
-        state_path,
+        state_path: loaded.path,
     })
 }
 
@@ -258,10 +320,30 @@ fn run_mainnet_auth_with_transport(
         subtests: Vec::new(),
     };
 
-    if let Some(state) = load_state(&config.state_path, &mut report) {
-        if state.endpoint == config.endpoint {
-            match transport.validate_token(&config.endpoint, &state.api_token) {
+    if let Some(loaded) = load_state(&config.state_path, &mut report) {
+        if loaded.state.endpoint == config.endpoint {
+            match transport.validate_token(&config.endpoint, &loaded.state.api_token) {
                 Ok(identity) => {
+                    if loaded.migrated_from_legacy {
+                        match persist_state(&config.state_path, &loaded.state) {
+                            Ok(()) => report.subtests.push(passed_step(
+                                "legacy-auth-state-migrates",
+                                "the reference client rewrites legacy JSON auth state as a wire-native local-state doc",
+                                vec![
+                                    format!("loaded `{}`", path_for_report(&loaded.path)),
+                                    format!("wrote `{}`", path_for_report(&config.state_path)),
+                                ],
+                            )),
+                            Err(reason) => {
+                                report.subtests.push(failed_step(
+                                    "legacy-auth-state-migrates",
+                                    "the reference client rewrites legacy JSON auth state as a wire-native local-state doc",
+                                    reason,
+                                ));
+                                return report;
+                            }
+                        }
+                    }
                     report.token_source = "persisted_state".to_owned();
                     report.identity = Some(identity);
                     report.subtests.push(passed_step(
@@ -269,7 +351,7 @@ fn run_mainnet_auth_with_transport(
                         "restart re-auth uses the on-disk credential without issuing a new token",
                         vec![format!(
                             "loaded persisted identity for `{}`",
-                            state.handle_path
+                            loaded.state.handle_path
                         )],
                     ));
                     return report;
@@ -286,7 +368,7 @@ fn run_mainnet_auth_with_transport(
                 "the cached credential is bound to the selected mainnet endpoint",
                 format!(
                     "state endpoint `{}` did not match selected endpoint `{}`",
-                    state.endpoint, config.endpoint
+                    loaded.state.endpoint, config.endpoint
                 ),
             ));
         }
@@ -489,40 +571,43 @@ impl MainnetAuthTransport for UreqMainnetAuthTransport {
     }
 }
 
-fn load_state(path: &Path, report: &mut MainnetAuthReport) -> Option<MainnetAuthState> {
-    if !path.exists() {
+fn load_state(path: &Path, report: &mut MainnetAuthReport) -> Option<LoadedMainnetAuthState> {
+    let candidates = if path == default_state_path().unwrap_or_else(|_| path.to_path_buf()) {
+        vec![path.to_path_buf(), legacy_default_state_path().ok()?]
+    } else {
+        vec![path.to_path_buf()]
+    };
+    let existing_path = candidates
+        .iter()
+        .find(|candidate| candidate.exists())
+        .cloned();
+    let Some(existing_path) = existing_path else {
         report.subtests.push(passed_step(
             "auth-state-read",
             "the reference client can check whether a persisted credential exists",
             vec!["no persisted auth state yet".to_owned()],
         ));
         return None;
-    }
+    };
 
-    match fs::read_to_string(path) {
-        Ok(text) => match serde_json::from_str::<MainnetAuthState>(&text) {
-            Ok(state) => {
-                report.subtests.push(passed_step(
-                    "auth-state-read",
-                    "the reference client can check whether a persisted credential exists",
-                    vec![format!("loaded `{}`", path_for_report(path))],
-                ));
-                Some(state)
-            }
-            Err(error) => {
-                report.subtests.push(failed_step(
-                    "auth-state-read",
-                    "the reference client can check whether a persisted credential exists",
-                    format!("state JSON was invalid: {error}"),
-                ));
-                None
-            }
-        },
+    match read_state_file(&existing_path) {
+        Ok(state) => {
+            report.subtests.push(passed_step(
+                "auth-state-read",
+                "the reference client can check whether a persisted credential exists",
+                vec![format!("loaded `{}`", path_for_report(&existing_path))],
+            ));
+            Some(LoadedMainnetAuthState {
+                state,
+                migrated_from_legacy: existing_path != path,
+                path: existing_path,
+            })
+        }
         Err(error) => {
             report.subtests.push(failed_step(
                 "auth-state-read",
                 "the reference client can check whether a persisted credential exists",
-                format!("state file could not be read: {error}"),
+                error,
             ));
             None
         }
@@ -530,38 +615,77 @@ fn load_state(path: &Path, report: &mut MainnetAuthReport) -> Option<MainnetAuth
 }
 
 fn persist_state(path: &Path, state: &MainnetAuthState) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|error| format!("failed to create auth state directory: {error}"))?;
+    let codec = WireNativeDocCodec::new();
+    let mut document = codec
+        .document(
+            LocalStateRecordKind::MainnetAuthCredential,
+            LocalStateRecordId::new("agent-wire-substrate-node")
+                .map_err(|error| format!("failed to build auth record id: {error}"))?,
+            LocalStateSchema::MainnetAuthCredentialV1,
+            MainnetAuthStateDoc::from_state(state)?,
+            "# Operator Notes\n\nPersisted mainnet credential for agent-wire-substrate-node. CLI output redacts token material.\n",
+        )
+        .map_err(|error| format!("failed to build auth state doc: {error}"))?;
+    document.frontmatter.topics = vec![
+        TopicTag::new("agent-wire-substrate-node")
+            .map_err(|error| format!("failed to build auth state topic: {error}"))?,
+        TopicTag::new("auth")
+            .map_err(|error| format!("failed to build auth state topic: {error}"))?,
+    ];
+    document.frontmatter.subjects = vec![LocalStateSubject {
+        kind: LocalStateSubjectKind::WireHandle,
+        value: state.handle_path.clone(),
+    }];
+    document.frontmatter.source_handle = Some(
+        WireHandle::new(state.handle_path.clone())
+            .map_err(|error| format!("failed to build auth state source handle: {error}"))?,
+    );
+    codec
+        .write(path, &document)
+        .map_err(|error| format!("failed to install auth state doc: {error}"))
+}
+
+fn load_first_existing_state(paths: &[PathBuf]) -> Result<LoadedMainnetAuthState, String> {
+    for path in paths {
+        if path.exists() {
+            let state = read_state_file(path)?;
+            return Ok(LoadedMainnetAuthState {
+                state,
+                path: path.clone(),
+                migrated_from_legacy: path.extension().and_then(|ext| ext.to_str()) == Some("json"),
+            });
+        }
     }
-
-    let json = serde_json::to_string_pretty(state)
-        .map_err(|error| format!("failed to serialize auth state: {error}"))?;
-    let tmp_path = path.with_extension("json.tmp");
-
-    write_private_file(&tmp_path, json.as_bytes())
-        .map_err(|error| format!("failed to write auth state: {error}"))?;
-    fs::rename(&tmp_path, path).map_err(|error| format!("failed to install auth state: {error}"))
+    let primary = paths
+        .first()
+        .map(|path| path_for_report(path))
+        .unwrap_or_else(|| "<unresolved>".to_owned());
+    Err(format!(
+        "failed to read persisted mainnet auth state `{primary}`. Run `agent-wire-substrate-node auth` first."
+    ))
 }
 
-#[cfg(unix)]
-fn write_private_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    use std::fs::OpenOptions;
-    use std::os::unix::fs::OpenOptionsExt;
-
-    let mut file = OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .mode(0o600)
-        .open(path)?;
-    file.write_all(bytes)?;
-    file.flush()
-}
-
-#[cfg(not(unix))]
-fn write_private_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    fs::write(path, bytes)
+fn read_state_file(path: &Path) -> Result<MainnetAuthState, String> {
+    let text = fs::read_to_string(path).map_err(|error| {
+        format!(
+            "state file `{}` could not be read: {error}",
+            path_for_report(path)
+        )
+    })?;
+    if text.starts_with("---\n") {
+        let document = WireNativeDocCodec::new()
+            .parse::<MainnetAuthStateDoc>(&text)
+            .map_err(|error| {
+                format!("state doc `{}` was invalid: {error}", path_for_report(path))
+            })?;
+        return document.payload.into_state();
+    }
+    serde_json::from_str::<MainnetAuthState>(&text).map_err(|error| {
+        format!(
+            "legacy state JSON `{}` was invalid: {error}",
+            path_for_report(path)
+        )
+    })
 }
 
 fn response_json(
@@ -668,6 +792,12 @@ fn default_state_path() -> Result<PathBuf, String> {
     let home =
         env::var("HOME").map_err(|_| "HOME is not set; set WIRE_AUTH_STATE_PATH".to_owned())?;
     Ok(Path::new(&home).join(DEFAULT_STATE_RELATIVE_PATH))
+}
+
+fn legacy_default_state_path() -> Result<PathBuf, String> {
+    let home =
+        env::var("HOME").map_err(|_| "HOME is not set; set WIRE_AUTH_STATE_PATH".to_owned())?;
+    Ok(Path::new(&home).join(LEGACY_STATE_RELATIVE_PATH))
 }
 
 fn expand_home(raw: &str) -> Result<PathBuf, String> {
@@ -854,8 +984,12 @@ mod tests {
 
         assert!(report.all_green());
         assert_eq!(report.token_source, "WIRE_API_TOKEN_FILE");
-        let persisted =
-            serde_json::from_str::<MainnetAuthState>(&fs::read_to_string(path).unwrap()).unwrap();
+        let persisted = WireNativeDocCodec::new()
+            .parse::<MainnetAuthStateDoc>(&fs::read_to_string(path).unwrap())
+            .unwrap()
+            .payload
+            .into_state()
+            .unwrap();
         assert_eq!(persisted.api_token, "seed-token");
         assert_eq!(persisted.handle_path, identity.handle_path);
     }
@@ -924,6 +1058,6 @@ mod tests {
             "agent-wire-substrate-node-auth-test-{name}-{}",
             Uuid::new_v4()
         ));
-        dir.join("auth.json")
+        dir.join("mainnet_auth_credential").join("auth.md")
     }
 }

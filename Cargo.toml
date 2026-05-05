@@ -29,6 +29,7 @@ agent-wire-substrate = { version = "0.1.0", path = "crates/substrate" }
 agent-wire-transport-cloudflare = { version = "0.1.0", path = "crates/transport-cloudflare" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+serde_yaml = "0.9"
 sha2 = "0.10"
 thiserror = "1.0"
 time = { version = "0.3", features = ["formatting", "parsing", "serde"] }

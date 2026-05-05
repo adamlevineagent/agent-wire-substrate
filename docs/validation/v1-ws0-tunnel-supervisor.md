@@ -11,7 +11,8 @@ Shipped in `agent-wire-transport-cloudflare`:
 - Cloudflared binary path selection, install detection, platform-specific
   download URL selection, and download/extract helper.
 - Server-side tunnel provisioning via `POST /api/v1/node/tunnel`.
-- `tunnel.json` load/save helpers.
+- Wire-native `tunnel_state/<node-id>.md` load/save helpers with legacy JSON
+  read fallback.
 - Stale credential detection for the stable
   `https://node-{nodeId}.agent-wire.com` URL pattern.
 - Resolver that reuses valid persisted tokens or provisions and persists a new

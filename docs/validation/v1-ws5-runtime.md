@@ -15,8 +15,8 @@ reference substrate node.
   - maps it exactly once into foundation-owned `McpTool`
   - routes through the existing typed `dispatch_mcp_tool` path
 - Identity persistence:
-  - atomically writes a compact V1 node identity state JSON file
-  - reads the same file back through the typed store
+  - atomically writes a compact V1 node identity state wire-native document
+  - reads the same document back through the typed foundation codec
   - keeps the persisted state to node/operator/namespace/key/endpoints only
 - Maintenance scheduler runtime:
   - schedules every foundation-owned `MaintenanceTask`

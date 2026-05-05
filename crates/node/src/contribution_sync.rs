@@ -702,7 +702,9 @@ mod tests {
             endpoint: "https://newsbleach.com/api/v1".to_owned(),
             api_token: "token".to_owned(),
             identity,
-            state_path: std::env::temp_dir().join("agent-wire-substrate-node-auth.json"),
+            state_path: std::env::temp_dir()
+                .join("mainnet_auth_credential")
+                .join("agent-wire-substrate-node.md"),
         }
     }
 

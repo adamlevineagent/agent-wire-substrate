@@ -13,7 +13,8 @@ credential as the persisted mainnet auth material for the reference client.
 The command checks these sources in order:
 
 1. Existing reference-client state at
-   `~/.wire-node/state/agent-wire-substrate-node-auth.json`.
+   `~/.wire-node/state/mainnet_auth_credential/agent-wire-substrate-node.md`
+   (with legacy JSON migration support).
 2. `WIRE_API_TOKEN`.
 3. `WIRE_API_TOKEN_FILE`.
 4. `WIRE_DEVICE_SECRET` with `/wire/agent/resume`.
@@ -26,8 +27,9 @@ the endpoint, requested agent name, and persisted state location.
 
 The command exits zero only when a credential validates against live `/me` and
 identifies as a real mainnet Wire agent. When a seed token or resumed token is
-used, the command writes the credential to disk with user-only file permissions.
-A second `agent-wire-substrate-node auth` run without seed credentials proves
-the restart path by validating the on-disk state directly.
+used, the command writes the credential to a wire-native local-state document
+with user-only file permissions. A second `agent-wire-substrate-node auth` run
+without seed credentials proves the restart path by validating the on-disk state
+directly.
 
 Command output never prints token material.

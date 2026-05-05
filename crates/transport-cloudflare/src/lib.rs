@@ -8,11 +8,14 @@ use std::thread;
 use std::time::Duration;
 
 use agent_wire_foundation::{
-    FoundationError, TransportDriver, TunnelRequest, TunnelSession, TunnelUrl,
+    FoundationError, LocalStateRecordId, LocalStateRecordKind, LocalStateSchema, LocalStateSubject,
+    LocalStateSubjectKind, SecretMaterial, SecretString, TopicTag, TransportDriver, TunnelRequest,
+    TunnelSession, TunnelUrl, WireNativeDocCodec,
 };
 use serde::{Deserialize, Serialize};
 
-pub const TUNNEL_STATE_FILE: &str = "tunnel.json";
+pub const TUNNEL_STATE_FILE: &str = "tunnel_state/tunnel.md";
+pub const LEGACY_TUNNEL_STATE_FILE: &str = "tunnel.json";
 pub const CLOUDFLARED_BINARY_NAME: &str = "cloudflared";
 
 #[derive(Debug, PartialEq, Eq)]
@@ -80,6 +83,53 @@ pub struct TunnelState {
     pub tunnel_url: Option<TunnelUrl>,
     pub tunnel_token: Option<String>,
     pub status: TunnelConnectionStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+struct TunnelStateDoc {
+    pub tunnel_id: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_tunnel_url_tolerant")]
+    pub tunnel_url: Option<TunnelUrl>,
+    pub tunnel_token: Option<SecretMaterial>,
+    pub status: TunnelConnectionStatus,
+}
+
+impl TunnelStateDoc {
+    fn from_state(state: &TunnelState) -> Result<Self, CloudflareTunnelError> {
+        Ok(Self {
+            tunnel_id: state.tunnel_id.clone(),
+            tunnel_url: state.tunnel_url.clone(),
+            tunnel_token: state
+                .tunnel_token
+                .as_ref()
+                .map(|token| {
+                    SecretString::new(token.clone())
+                        .map(SecretMaterial::Inline)
+                        .map_err(CloudflareTunnelError::from)
+                })
+                .transpose()?,
+            status: state.status.clone(),
+        })
+    }
+
+    fn into_state(self) -> Result<TunnelState, CloudflareTunnelError> {
+        let tunnel_token = match self.tunnel_token {
+            Some(SecretMaterial::Inline(secret)) => Some(secret.expose_secret().to_owned()),
+            Some(SecretMaterial::KeychainRef(handle)) => {
+                return Err(CloudflareTunnelError::Json(format!(
+                    "keychain tunnel token `{}` is not supported by this transport driver yet",
+                    handle.as_str()
+                )))
+            }
+            None => None,
+        };
+        Ok(TunnelState {
+            tunnel_id: self.tunnel_id,
+            tunnel_url: self.tunnel_url,
+            tunnel_token,
+            status: self.status,
+        })
+    }
 }
 
 fn deserialize_tunnel_url_tolerant<'de, D>(deserializer: D) -> Result<Option<TunnelUrl>, D::Error>
@@ -269,26 +319,86 @@ pub fn provision_tunnel(
 }
 
 pub fn load_tunnel_state(data_dir: &Path) -> Result<Option<TunnelState>, CloudflareTunnelError> {
-    let path = data_dir.join(TUNNEL_STATE_FILE);
-    if !path.exists() {
-        return Ok(None);
-    }
-    let data = fs::read_to_string(path)?;
-    serde_json::from_str(&data)
-        .map(Some)
-        .map_err(|error| CloudflareTunnelError::Json(error.to_string()))
+    load_tunnel_state_from_path(&data_dir.join(TUNNEL_STATE_FILE))
+        .or_else(|| load_tunnel_state_from_path(&data_dir.join(LEGACY_TUNNEL_STATE_FILE)))
+        .transpose()
+}
+
+pub fn load_tunnel_state_for_node(
+    data_dir: &Path,
+    node_id: &str,
+) -> Result<Option<TunnelState>, CloudflareTunnelError> {
+    load_tunnel_state_from_path(&tunnel_state_path(data_dir, node_id))
+        .or_else(|| load_tunnel_state_from_path(&data_dir.join(TUNNEL_STATE_FILE)))
+        .or_else(|| load_tunnel_state_from_path(&data_dir.join(LEGACY_TUNNEL_STATE_FILE)))
+        .transpose()
 }
 
 pub fn save_tunnel_state(
     data_dir: &Path,
     state: &TunnelState,
 ) -> Result<(), CloudflareTunnelError> {
-    fs::create_dir_all(data_dir)?;
-    let path = data_dir.join(TUNNEL_STATE_FILE);
-    let json = serde_json::to_string_pretty(state)
+    save_tunnel_state_to_path(&data_dir.join(TUNNEL_STATE_FILE), "tunnel", state)
+}
+
+pub fn save_tunnel_state_for_node(
+    data_dir: &Path,
+    node_id: &str,
+    state: &TunnelState,
+) -> Result<(), CloudflareTunnelError> {
+    save_tunnel_state_to_path(&tunnel_state_path(data_dir, node_id), node_id, state)
+}
+
+pub fn tunnel_state_path(data_dir: &Path, node_id: &str) -> PathBuf {
+    data_dir
+        .join(LocalStateRecordKind::TunnelState.directory_name())
+        .join(format!("{node_id}.md"))
+}
+
+fn load_tunnel_state_from_path(path: &Path) -> Option<Result<TunnelState, CloudflareTunnelError>> {
+    if !path.exists() {
+        return None;
+    }
+    Some(read_tunnel_state_file(path))
+}
+
+fn read_tunnel_state_file(path: &Path) -> Result<TunnelState, CloudflareTunnelError> {
+    let data = fs::read_to_string(path)?;
+    if data.starts_with("---\n") {
+        let document = WireNativeDocCodec::new()
+            .parse::<TunnelStateDoc>(&data)
+            .map_err(|error| CloudflareTunnelError::Json(error.to_string()))?;
+        return document.payload.into_state();
+    }
+    serde_json::from_str(&data).map_err(|error| CloudflareTunnelError::Json(error.to_string()))
+}
+
+fn save_tunnel_state_to_path(
+    path: &Path,
+    record_id: &str,
+    state: &TunnelState,
+) -> Result<(), CloudflareTunnelError> {
+    let codec = WireNativeDocCodec::new();
+    let mut document = codec
+        .document(
+            LocalStateRecordKind::TunnelState,
+            LocalStateRecordId::new(record_id)?,
+            LocalStateSchema::TunnelStateV1,
+            TunnelStateDoc::from_state(state)?,
+            "# Operator Notes\n\nCloudflare tunnel state for agent-wire-substrate transport.\n",
+        )
         .map_err(|error| CloudflareTunnelError::Json(error.to_string()))?;
-    fs::write(path, json)?;
-    Ok(())
+    document.frontmatter.topics = vec![
+        TopicTag::new("agent-wire-substrate-node")?,
+        TopicTag::new("cloudflare-tunnel")?,
+    ];
+    document.frontmatter.subjects = vec![LocalStateSubject {
+        kind: LocalStateSubjectKind::NodeId,
+        value: record_id.to_owned(),
+    }];
+    codec
+        .write(path, &document)
+        .map_err(|error| CloudflareTunnelError::Json(error.to_string()))
 }
 
 pub fn persisted_state_is_stale_for_node(state: &TunnelState, node_id: &str) -> bool {
@@ -321,9 +431,11 @@ pub fn resolve_or_provision_tunnel_state_with<F>(
 where
     F: FnOnce() -> Result<TunnelState, CloudflareTunnelError>,
 {
-    if let Some(mut persisted) = load_tunnel_state(data_dir)? {
+    if let Some(mut persisted) = load_tunnel_state_for_node(data_dir, node_id)? {
         if persisted_state_is_stale_for_node(&persisted, node_id) {
+            let _ = fs::remove_file(tunnel_state_path(data_dir, node_id));
             let _ = fs::remove_file(data_dir.join(TUNNEL_STATE_FILE));
+            let _ = fs::remove_file(data_dir.join(LEGACY_TUNNEL_STATE_FILE));
         } else if persisted.tunnel_token.is_some() {
             persisted.status = TunnelConnectionStatus::Connecting;
             return Ok(persisted);
@@ -331,7 +443,7 @@ where
     }
 
     let provisioned = provision()?;
-    save_tunnel_state(data_dir, &provisioned)?;
+    save_tunnel_state_for_node(data_dir, node_id, &provisioned)?;
     Ok(provisioned)
 }
 
@@ -555,7 +667,9 @@ mod tests {
             })
         })
         .unwrap();
-        let persisted = load_tunnel_state(&data_dir).unwrap().unwrap();
+        let persisted = load_tunnel_state_for_node(&data_dir, "current")
+            .unwrap()
+            .unwrap();
 
         assert_eq!(resolved.tunnel_id.as_deref(), Some("new"));
         assert_eq!(persisted.tunnel_id.as_deref(), Some("new"));

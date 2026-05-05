@@ -5,6 +5,7 @@ pub mod economics;
 pub mod error;
 pub mod events;
 pub mod identity;
+pub mod local_state;
 pub mod mirror;
 pub mod namespace;
 pub mod refs;
@@ -26,6 +27,12 @@ pub use identity::{
     HandleClaim, MasterKeyId, MasterKeyRotation, MasterPublicKey, MasterSignature, MasterSigner,
     MasterVerifier, OperatorEmail, PrivateAliasMapping, PrivateGraphRegistration,
     ReputationSnapshot, SignatureAlgorithm, SignedStatement,
+};
+pub use local_state::{
+    Clock, KeyHandle, LocalStateDocError, LocalStateDocument, LocalStateFrontmatter,
+    LocalStateRecordId, LocalStateRecordKind, LocalStateRef, LocalStateSchema,
+    LocalStateSensitivity, LocalStateSubject, LocalStateSubjectKind, SecretMaterial, SecretPolicy,
+    SecretString, SystemClock, TopicTag, WireHandle, WireNativeDocCodec,
 };
 pub use mirror::{
     compute_mirror_diff, CachedDocument, ContentHash, CorpusSlug, LocalDocumentSnapshot,
