@@ -21,6 +21,16 @@ impl VocabularyNamespace {
     }
 }
 
+/// A user vocabulary key.
+///
+/// Reserved substrate primitive names and canonical operation names are minted
+/// only through foundation-owned constructors.
+///
+/// ```compile_fail
+/// use agent_wire_foundation::VocabularyKey;
+///
+/// let _ = VocabularyKey::system("llm");
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct VocabularyKey(String);
 
@@ -38,9 +48,16 @@ impl VocabularyKey {
         Ok(Self(value))
     }
 
-    pub fn system(value: impl Into<String>) -> Result<Self, FoundationError> {
+    pub(crate) fn system(value: impl Into<String>) -> Result<Self, FoundationError> {
         let value = value.into();
         validate_slug("vocabulary_key", &value)?;
+        if !is_reserved_primitive_name(&value)
+            || canonical_ops::is_foundation_registered_name(&value)
+        {
+            return Err(FoundationError::ReservedName {
+                field: "vocabulary_key",
+            });
+        }
         Ok(Self(value))
     }
 
@@ -64,6 +81,21 @@ pub struct VocabularyEntry {
 }
 
 impl VocabularyEntry {
+    pub fn compute_primitive_entry(
+        vocabulary: VocabularyNamespace,
+        definition_ref: CrossGraphRef,
+    ) -> Result<Self, FoundationError> {
+        Self::new(
+            VocabularyTermRef {
+                vocabulary,
+                key: VocabularyKey::system("compute-market")?,
+                definition_ref,
+            },
+            "Compute Market",
+            Some("Node 2.0 substrate-tier compute market vocabulary term"),
+        )
+    }
+
     pub fn new(
         term: VocabularyTermRef,
         label: impl Into<String>,
@@ -593,6 +625,18 @@ mod tests {
             })
         );
         assert!(VocabularyKey::system("compute-market").is_ok());
+        assert_eq!(
+            VocabularyKey::system("llm"),
+            Err(FoundationError::ReservedName {
+                field: "vocabulary_key"
+            })
+        );
+        assert_eq!(
+            VocabularyKey::system("safe-system"),
+            Err(FoundationError::ReservedName {
+                field: "vocabulary_key"
+            })
+        );
     }
 
     #[test]

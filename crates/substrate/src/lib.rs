@@ -37,6 +37,7 @@ mod tests {
         assert_eq!(runtime.markets.compute_offer.model_id, "wire-demo-model");
         assert_eq!(runtime.markets.storage_offer.capacity_bytes, 1_000_000);
         assert_eq!(runtime.markets.relay_offer.capabilities.len(), 2);
+        assert_eq!(runtime.vocabulary.term().key.as_str(), "compute-market");
         assert!(runtime.config.opt_in.compute_provider);
         assert!(runtime.config.opt_in.compute_requester);
     }

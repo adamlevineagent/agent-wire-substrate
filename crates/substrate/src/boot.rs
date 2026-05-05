@@ -7,7 +7,7 @@ use agent_wire_contracts::ContractVerb;
 use agent_wire_foundation::{
     CallbackUrl, CreditAmount, CrossGraphRef, EndpointUrl, FoundationError, GraphSlug, HandlePath,
     PriceCurve, SettlementIntent, TransportDriver, TunnelRequest, TunnelSession, VocabularyEntry,
-    VocabularyKey, VocabularyNamespace, VocabularyTermRef,
+    VocabularyNamespace,
 };
 use agent_wire_relay_market::{HopCapability, PrivacyTier, RelayOffer, RelayOfferId};
 use agent_wire_storage_market::{
@@ -153,15 +153,7 @@ fn compose_vocabulary_entry() -> Result<VocabularyEntry, FoundationError> {
         agent_wire_foundation::NamespaceId::new("playful")?,
         "wire-v2",
     )?;
-    VocabularyEntry::new(
-        VocabularyTermRef {
-            vocabulary,
-            key: VocabularyKey::system("compute-market")?,
-            definition_ref: demo_ref("vocabulary", 1)?,
-        },
-        "Compute Market",
-        Some("Node 2.0 substrate-tier compute market vocabulary term"),
-    )
+    VocabularyEntry::compute_primitive_entry(vocabulary, demo_ref("vocabulary", 1)?)
 }
 
 fn demo_ref(slug: &str, sequence: u32) -> Result<CrossGraphRef, FoundationError> {
