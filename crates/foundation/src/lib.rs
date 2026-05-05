@@ -14,7 +14,10 @@ pub mod vocabulary;
 #[cfg(test)]
 mod dependency_guard;
 
-pub use economics::{CreditAmount, PriceCurve, SettlementIntent};
+pub use economics::{
+    CreditAmount, FillKey, IdempotencyKey, PriceCurve, QuoteReceipt, SettlementCommit,
+    SettlementIntent, SettlementSettled,
+};
 pub use error::FoundationError;
 pub use events::{EventCursor, EventEnvelope, EventId, EventKind, EventTrigger, TriggerFilter};
 pub use identity::{
@@ -26,12 +29,14 @@ pub use namespace::{GraphKind, GraphSlug, NamespaceId, ReputationRegistryId};
 pub use refs::{ContributionRef, CrossGraphRef, HandlePath};
 pub use sandbox::{
     BoundSandboxPolicy, BudgetAccountant, Capability, CapabilityGrant, ExtensionCapability,
-    ResourceBudget, SandboxPolicy,
+    ResourceBudget, SandboxPolicy, DEFAULT_MAX_HEAP_BYTES, DEFAULT_MAX_RECURSION_DEPTH,
+    DEFAULT_MAX_STACK_DEPTH,
 };
 pub use transport::{
     CallbackUrl, EndpointUrl, PublicEndpoint, TransportDriver, TunnelRequest, TunnelSession,
     TunnelUrl,
 };
 pub use vocabulary::{
-    VocabularyEntry, VocabularyKey, VocabularyNamespace, VocabularyResolver, VocabularyTermRef,
+    canonical_ops, VocabularyEntry, VocabularyKey, VocabularyNamespace, VocabularyResolver,
+    VocabularyTermRef,
 };

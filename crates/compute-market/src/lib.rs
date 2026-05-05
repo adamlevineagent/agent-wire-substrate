@@ -1,7 +1,7 @@
 use agent_wire_contracts::ContractWrap;
 use agent_wire_foundation::{
-    CallbackUrl, CreditAmount, CrossGraphRef, EventEnvelope, HandlePath, PriceCurve,
-    SettlementIntent,
+    CallbackUrl, CreditAmount, CrossGraphRef, EventEnvelope, FillKey, HandlePath, IdempotencyKey,
+    PriceCurve, QuoteReceipt, SettlementIntent,
 };
 use serde::{Deserialize, Serialize};
 
@@ -125,6 +125,7 @@ pub struct ComputeQuote {
     pub provider_node_id: ProviderNodeId,
     pub model_id: String,
     pub price_breakdown: PriceBreakdown,
+    pub quote_receipt: QuoteReceipt,
     pub expires_at_ms: u64,
     pub quote_ref: Option<CrossGraphRef>,
 }
@@ -140,6 +141,7 @@ pub enum ComputePurchaseTrigger {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ComputePurchaseRequest {
     pub quote_id: ComputeQuoteId,
+    pub idempotency_key: IdempotencyKey,
     pub requester: HandlePath,
     pub trigger: ComputePurchaseTrigger,
     pub delivery: DeliveryPolicy,
@@ -255,6 +257,7 @@ pub struct ChatMessage {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ComputeFillRequest {
     pub reservation_id: ComputeReservationId,
+    pub fill_key: FillKey,
     pub job_ref: CrossGraphRef,
     pub offer_id: ComputeOfferId,
     pub requester: HandlePath,
@@ -429,12 +432,20 @@ mod tests {
                 queue_discount_bps: 100,
                 total: sats(45),
             },
+            quote_receipt: QuoteReceipt::new(
+                playful_ref(1),
+                IdempotencyKey::new("quote-1").unwrap(),
+                sats(45),
+                1_800_000,
+            )
+            .unwrap(),
             expires_at_ms: 1_800_000,
             quote_ref: Some(playful_ref(1)),
         };
 
         let purchase = ComputePurchaseRequest {
             quote_id: quote.quote_id.clone(),
+            idempotency_key: IdempotencyKey::new("purchase-quote-1").unwrap(),
             requester: HandlePath::new(["agent", "playful", "kramer"]).unwrap(),
             trigger: ComputePurchaseTrigger::Immediate,
             delivery: DeliveryPolicy {
@@ -450,6 +461,7 @@ mod tests {
 
         let fill = ComputeFillRequest {
             reservation_id: ComputeReservationId("reservation-1".to_owned()),
+            fill_key: FillKey::new("reservation-1-fill").unwrap(),
             job_ref: playful_ref(2),
             offer_id: quote.offer_id.clone(),
             requester: purchase.requester.clone(),
@@ -470,7 +482,7 @@ mod tests {
 
         let dispatch = MarketDispatchRequest {
             dispatch_id: ComputeDispatchId("dispatch-1".to_owned()),
-            provider_node_id: quote.provider_node_id,
+            provider_node_id: quote.provider_node_id.clone(),
             fill,
             credentials: DispatchCredentials {
                 credential_ref: playful_ref(3),
@@ -480,7 +492,10 @@ mod tests {
         };
 
         assert_eq!(purchase.quote_id, ComputeQuoteId("quote-1".to_owned()));
+        assert_eq!(purchase.idempotency_key.as_str(), "purchase-quote-1");
+        assert_eq!(quote.quote_receipt.idempotency_key().as_str(), "quote-1");
         assert_eq!(dispatch.fill.offer_id, ComputeOfferId("offer-1".to_owned()));
+        assert_eq!(dispatch.fill.fill_key.as_str(), "reservation-1-fill");
         assert_eq!(
             dispatch.fill.privacy_tier,
             ComputePrivacyTier::BootstrapRelay

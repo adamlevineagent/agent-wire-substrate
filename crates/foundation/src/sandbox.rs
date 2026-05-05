@@ -6,6 +6,9 @@ use crate::FoundationError;
 
 pub const MAX_EXTENSION_CAPABILITY_BYTES: usize = 64;
 pub const MAX_CAPABILITY_REASON_BYTES: usize = 240;
+pub const DEFAULT_MAX_STACK_DEPTH: u32 = 64;
+pub const DEFAULT_MAX_HEAP_BYTES: u64 = 16 * 1024 * 1024;
+pub const DEFAULT_MAX_RECURSION_DEPTH: u32 = 32;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Capability {
@@ -69,10 +72,14 @@ impl CapabilityGrant {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "ResourceBudgetParts", into = "ResourceBudgetParts")]
 pub struct ResourceBudget {
     max_credits: CreditAmount,
     max_events: u64,
     max_wall_time_ms: u64,
+    max_stack_depth: u32,
+    max_heap_bytes: u64,
+    max_recursion_depth: u32,
 }
 
 impl ResourceBudget {
@@ -80,6 +87,24 @@ impl ResourceBudget {
         max_credits: CreditAmount,
         max_events: u64,
         max_wall_time_ms: u64,
+    ) -> Result<Self, FoundationError> {
+        Self::bounded(
+            max_credits,
+            max_events,
+            max_wall_time_ms,
+            DEFAULT_MAX_STACK_DEPTH,
+            DEFAULT_MAX_HEAP_BYTES,
+            DEFAULT_MAX_RECURSION_DEPTH,
+        )
+    }
+
+    pub fn bounded(
+        max_credits: CreditAmount,
+        max_events: u64,
+        max_wall_time_ms: u64,
+        max_stack_depth: u32,
+        max_heap_bytes: u64,
+        max_recursion_depth: u32,
     ) -> Result<Self, FoundationError> {
         if max_credits == CreditAmount::zero() {
             return Err(FoundationError::OutOfRange {
@@ -96,10 +121,28 @@ impl ResourceBudget {
                 field: "max_wall_time_ms",
             });
         }
+        if max_stack_depth == 0 {
+            return Err(FoundationError::OutOfRange {
+                field: "max_stack_depth",
+            });
+        }
+        if max_heap_bytes == 0 {
+            return Err(FoundationError::OutOfRange {
+                field: "max_heap_bytes",
+            });
+        }
+        if max_recursion_depth == 0 {
+            return Err(FoundationError::OutOfRange {
+                field: "max_recursion_depth",
+            });
+        }
         Ok(Self {
             max_credits,
             max_events,
             max_wall_time_ms,
+            max_stack_depth,
+            max_heap_bytes,
+            max_recursion_depth,
         })
     }
 
@@ -114,6 +157,71 @@ impl ResourceBudget {
     pub fn max_wall_time_ms(&self) -> u64 {
         self.max_wall_time_ms
     }
+
+    pub fn max_stack_depth(&self) -> u32 {
+        self.max_stack_depth
+    }
+
+    pub fn max_heap_bytes(&self) -> u64 {
+        self.max_heap_bytes
+    }
+
+    pub fn max_recursion_depth(&self) -> u32 {
+        self.max_recursion_depth
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct ResourceBudgetParts {
+    max_credits: CreditAmount,
+    max_events: u64,
+    max_wall_time_ms: u64,
+    #[serde(default = "default_max_stack_depth")]
+    max_stack_depth: u32,
+    #[serde(default = "default_max_heap_bytes")]
+    max_heap_bytes: u64,
+    #[serde(default = "default_max_recursion_depth")]
+    max_recursion_depth: u32,
+}
+
+impl TryFrom<ResourceBudgetParts> for ResourceBudget {
+    type Error = FoundationError;
+
+    fn try_from(value: ResourceBudgetParts) -> Result<Self, Self::Error> {
+        Self::bounded(
+            value.max_credits,
+            value.max_events,
+            value.max_wall_time_ms,
+            value.max_stack_depth,
+            value.max_heap_bytes,
+            value.max_recursion_depth,
+        )
+    }
+}
+
+impl From<ResourceBudget> for ResourceBudgetParts {
+    fn from(value: ResourceBudget) -> Self {
+        Self {
+            max_credits: value.max_credits,
+            max_events: value.max_events,
+            max_wall_time_ms: value.max_wall_time_ms,
+            max_stack_depth: value.max_stack_depth,
+            max_heap_bytes: value.max_heap_bytes,
+            max_recursion_depth: value.max_recursion_depth,
+        }
+    }
+}
+
+fn default_max_stack_depth() -> u32 {
+    DEFAULT_MAX_STACK_DEPTH
+}
+
+fn default_max_heap_bytes() -> u64 {
+    DEFAULT_MAX_HEAP_BYTES
+}
+
+fn default_max_recursion_depth() -> u32 {
+    DEFAULT_MAX_RECURSION_DEPTH
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -180,6 +288,24 @@ pub trait BudgetAccountant {
 
     fn record_event(&mut self, policy: &BoundSandboxPolicy) -> Result<(), Self::Error>;
 
+    fn reserve_heap_bytes(
+        &mut self,
+        bytes: u64,
+        policy: &BoundSandboxPolicy,
+    ) -> Result<(), Self::Error>;
+
+    fn enter_stack_frame(
+        &mut self,
+        depth: u32,
+        policy: &BoundSandboxPolicy,
+    ) -> Result<(), Self::Error>;
+
+    fn enter_recursion(
+        &mut self,
+        depth: u32,
+        policy: &BoundSandboxPolicy,
+    ) -> Result<(), Self::Error>;
+
     fn elapsed_wall_time_ms(&self) -> u64;
 }
 
@@ -215,5 +341,58 @@ mod tests {
 
         assert!(bound.allows(&Capability::ReadContribution));
         assert_eq!(bound.budget().max_credits().as_sats(), 10);
+        assert_eq!(bound.budget().max_stack_depth(), DEFAULT_MAX_STACK_DEPTH);
+        assert_eq!(bound.budget().max_heap_bytes(), DEFAULT_MAX_HEAP_BYTES);
+        assert_eq!(
+            bound.budget().max_recursion_depth(),
+            DEFAULT_MAX_RECURSION_DEPTH
+        );
+    }
+
+    #[test]
+    fn resource_budget_requires_runtime_execution_caps() {
+        assert_eq!(
+            ResourceBudget::bounded(
+                CreditAmount::from_sats(10),
+                1,
+                1_000,
+                0,
+                DEFAULT_MAX_HEAP_BYTES,
+                DEFAULT_MAX_RECURSION_DEPTH
+            ),
+            Err(FoundationError::OutOfRange {
+                field: "max_stack_depth"
+            })
+        );
+        let budget =
+            ResourceBudget::bounded(CreditAmount::from_sats(10), 1, 1_000, 8, 4096, 4).unwrap();
+
+        assert_eq!(budget.max_stack_depth(), 8);
+        assert_eq!(budget.max_heap_bytes(), 4096);
+        assert_eq!(budget.max_recursion_depth(), 4);
+    }
+
+    #[test]
+    fn resource_budget_serde_uses_constructor_validation() {
+        let invalid = serde_json::json!({
+            "max_credits": 10,
+            "max_events": 1,
+            "max_wall_time_ms": 1_000,
+            "max_stack_depth": 0,
+            "max_heap_bytes": DEFAULT_MAX_HEAP_BYTES,
+            "max_recursion_depth": DEFAULT_MAX_RECURSION_DEPTH
+        });
+        assert!(serde_json::from_value::<ResourceBudget>(invalid).is_err());
+
+        let legacy_shape = serde_json::json!({
+            "max_credits": 10,
+            "max_events": 1,
+            "max_wall_time_ms": 1_000
+        });
+        let budget = serde_json::from_value::<ResourceBudget>(legacy_shape).unwrap();
+
+        assert_eq!(budget.max_stack_depth(), DEFAULT_MAX_STACK_DEPTH);
+        assert_eq!(budget.max_heap_bytes(), DEFAULT_MAX_HEAP_BYTES);
+        assert_eq!(budget.max_recursion_depth(), DEFAULT_MAX_RECURSION_DEPTH);
     }
 }
