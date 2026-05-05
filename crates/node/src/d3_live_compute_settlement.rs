@@ -26,6 +26,8 @@ const DEFAULT_FILL_RETRY_TIMEOUT_SECS: u64 = 180;
 const DEFAULT_FILL_RETRY_MAX_ATTEMPTS: u32 = 24;
 const DEFAULT_FILL_RETRY_BACKOFF_MILLIS: u64 = 5_000;
 const DEFAULT_FILL_RETRY_MAX_JITTER_MILLIS: u64 = 1_000;
+const DEFAULT_TUNNEL_BOOTSTRAP_MAX_ATTEMPTS: u32 = 3;
+const DEFAULT_TUNNEL_BOOTSTRAP_BACKOFF_SECS: u64 = 5;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct D3LiveComputeSettlementReport {
@@ -179,7 +181,14 @@ struct D3Config {
     max_tokens: u32,
     max_budget: i64,
     tunnel_health_timeout_secs: u64,
+    tunnel_bootstrap_policy: D3TunnelBootstrapPolicy,
     fill_retry_policy: D3FillRetryPolicy,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct D3TunnelBootstrapPolicy {
+    max_attempts: u32,
+    backoff_secs: u64,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -231,6 +240,7 @@ impl Drop for ProviderServer {
 
 struct CloudflaredChild {
     child: Child,
+    stderr: Option<std::process::ChildStderr>,
 }
 
 impl Drop for CloudflaredChild {
@@ -250,6 +260,30 @@ pub fn run_d3_live_compute_settlement() -> D3LiveComputeSettlementReport {
                 reason,
             ));
             report
+        }
+    }
+}
+
+impl CloudflaredChild {
+    fn exited_reason(&mut self) -> Result<Option<String>, String> {
+        let Some(status) = self
+            .child
+            .try_wait()
+            .map_err(|error| format!("cloudflared status check failed: {error}"))?
+        else {
+            return Ok(None);
+        };
+        let mut stderr = String::new();
+        if let Some(mut stream) = self.stderr.take() {
+            let _ = stream.read_to_string(&mut stderr);
+        }
+        if stderr.trim().is_empty() {
+            Ok(Some(format!("cloudflared exited with {status}")))
+        } else {
+            Ok(Some(format!(
+                "cloudflared exited with {status}: {}",
+                trim_for_report(&stderr)
+            )))
         }
     }
 }
@@ -344,18 +378,14 @@ fn run_d3_live_compute_settlement_inner(
         ],
     ));
 
-    let tunnel = provision_tunnel(
+    let (tunnel, cloudflared, tunnel_attempts) = start_ready_cloudflare_tunnel(
         &config,
         &credential.api_token,
         &provider.id,
         provider_server.port,
     )
-    .map_err(|reason| (report.clone(), "cloudflare-tunnel-provisions", reason))?;
+    .map_err(|reason| (report.clone(), "cloudflare-tunnel-reachable", reason))?;
     report.tunnel_url = Some(tunnel.url.clone());
-    let cloudflared = start_cloudflared(&config, &tunnel)
-        .map_err(|reason| (report.clone(), "cloudflared-process-starts", reason))?;
-    wait_for_tunnel_health(&tunnel.url, config.tunnel_health_timeout_secs)
-        .map_err(|reason| (report.clone(), "cloudflare-tunnel-reachable", reason))?;
     heartbeat_node(
         &config,
         &credential.api_token,
@@ -368,7 +398,10 @@ fn run_d3_live_compute_settlement_inner(
     report.subtests.push(passed_step(
         "cloudflare-tunnel-reachable",
         "a live Cloudflare tunnel reaches the local substrate provider server",
-        vec![tunnel.url.clone()],
+        vec![
+            tunnel.url.clone(),
+            format!("bootstrap_attempts {tunnel_attempts}"),
+        ],
     ));
 
     let offer_id = publish_offer(&config, &credential.api_token, &provider.id)
@@ -538,6 +571,7 @@ impl D3Config {
             .ok()
             .and_then(|raw| raw.parse::<u64>().ok())
             .unwrap_or(120);
+        let tunnel_bootstrap_policy = D3TunnelBootstrapPolicy::from_env();
         let fill_retry_policy = D3FillRetryPolicy::from_env();
 
         Ok(Self {
@@ -551,6 +585,7 @@ impl D3Config {
             max_tokens,
             max_budget,
             tunnel_health_timeout_secs,
+            tunnel_bootstrap_policy,
             fill_retry_policy,
         })
     }
@@ -565,6 +600,22 @@ impl D3Config {
             self.supabase_url,
             path.trim_start_matches('/')
         )
+    }
+}
+
+impl D3TunnelBootstrapPolicy {
+    fn from_env() -> Self {
+        Self {
+            max_attempts: env_u64(
+                "D3_TUNNEL_BOOTSTRAP_MAX_ATTEMPTS",
+                u64::from(DEFAULT_TUNNEL_BOOTSTRAP_MAX_ATTEMPTS),
+            )
+            .clamp(1, u64::from(u32::MAX)) as u32,
+            backoff_secs: env_u64(
+                "D3_TUNNEL_BOOTSTRAP_BACKOFF_SECS",
+                DEFAULT_TUNNEL_BOOTSTRAP_BACKOFF_SECS,
+            ),
+        }
     }
 }
 
@@ -720,6 +771,57 @@ fn bootstrap_node_via_service_role(
     })
 }
 
+fn start_ready_cloudflare_tunnel(
+    config: &D3Config,
+    api_token: &str,
+    node_id: &str,
+    local_port: u16,
+) -> Result<(TunnelInfo, CloudflaredChild, u32), String> {
+    let policy = config.tunnel_bootstrap_policy;
+    let mut last = String::new();
+    for attempt in 1..=policy.max_attempts {
+        match provision_tunnel(config, api_token, node_id, local_port) {
+            Ok(tunnel) => match start_cloudflared(config, &tunnel) {
+                Ok(mut cloudflared) => {
+                    match wait_for_tunnel_health(
+                        &mut cloudflared,
+                        &tunnel.url,
+                        config.tunnel_health_timeout_secs,
+                    ) {
+                        Ok(()) => return Ok((tunnel, cloudflared, attempt)),
+                        Err(reason) => {
+                            last = format!(
+                                "attempt {attempt}/{} health failed for {}: {reason}",
+                                policy.max_attempts, tunnel.url
+                            );
+                            drop(cloudflared);
+                        }
+                    }
+                }
+                Err(reason) => {
+                    last = format!(
+                        "attempt {attempt}/{} cloudflared start failed: {reason}",
+                        policy.max_attempts
+                    );
+                }
+            },
+            Err(reason) => {
+                last = format!(
+                    "attempt {attempt}/{} tunnel provision failed: {reason}",
+                    policy.max_attempts
+                );
+            }
+        }
+        if attempt < policy.max_attempts && policy.backoff_secs > 0 {
+            thread::sleep(Duration::from_secs(policy.backoff_secs));
+        }
+    }
+    Err(format!(
+        "cloudflare tunnel bootstrap failed after {} attempts: {last}",
+        policy.max_attempts
+    ))
+}
+
 fn provision_tunnel(
     config: &D3Config,
     api_token: &str,
@@ -749,7 +851,7 @@ fn start_cloudflared(config: &D3Config, tunnel: &TunnelInfo) -> Result<Cloudflar
     let path = config.cloudflared_path.as_ref().ok_or_else(|| {
         "cloudflared not found. Set D3_CLOUDFLARED_PATH or install/download cloudflared.".to_owned()
     })?;
-    let child = Command::new(path)
+    let mut child = Command::new(path)
         .arg("--no-autoupdate")
         .arg("tunnel")
         .arg("run")
@@ -757,17 +859,25 @@ fn start_cloudflared(config: &D3Config, tunnel: &TunnelInfo) -> Result<Cloudflar
         .arg(&tunnel.token)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
         .map_err(|error| format!("failed to spawn cloudflared: {error}"))?;
-    Ok(CloudflaredChild { child })
+    let stderr = child.stderr.take();
+    Ok(CloudflaredChild { child, stderr })
 }
 
-fn wait_for_tunnel_health(tunnel_url: &str, timeout_secs: u64) -> Result<(), String> {
+fn wait_for_tunnel_health(
+    cloudflared: &mut CloudflaredChild,
+    tunnel_url: &str,
+    timeout_secs: u64,
+) -> Result<(), String> {
     let deadline = Instant::now() + Duration::from_secs(timeout_secs);
     let health_url = format!("{}/health", tunnel_url.trim_end_matches('/'));
     let mut last = String::new();
     while Instant::now() < deadline {
+        if let Some(reason) = cloudflared.exited_reason()? {
+            return Err(reason);
+        }
         match ureq::get(&health_url)
             .timeout(Duration::from_secs(5))
             .call()
@@ -1565,6 +1675,16 @@ mod tests {
             sanitize_node_handle("D3 Kramer Provider 123"),
             "d3-kramer-provider-123"
         );
+    }
+
+    #[test]
+    fn tunnel_bootstrap_policy_has_bounded_defaults() {
+        let policy = D3TunnelBootstrapPolicy {
+            max_attempts: DEFAULT_TUNNEL_BOOTSTRAP_MAX_ATTEMPTS,
+            backoff_secs: DEFAULT_TUNNEL_BOOTSTRAP_BACKOFF_SECS,
+        };
+        assert_eq!(policy.max_attempts, 3);
+        assert_eq!(policy.backoff_secs, 5);
     }
 
     #[test]

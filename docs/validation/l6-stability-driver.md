@@ -5,7 +5,9 @@ The L6 driver is the substrate-side harness for long-running reference-client st
 Because each L6 cycle creates a fresh Cloudflare route, D3's fill step uses a
 bounded retry policy for transient tunnel-propagation dispatch failures. Retries
 reuse the same fill idempotency key and are capped by timeout, max attempts,
-base backoff, and deterministic jitter.
+base backoff, and deterministic jitter. D3 also retries the tunnel bootstrap
+itself with a fresh tunnel when health checks stay red through the configured
+health window.
 
 ## Scope
 

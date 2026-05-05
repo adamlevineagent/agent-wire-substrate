@@ -19,6 +19,8 @@ The script accepts `D3_ENV_FILE=/path/to/.env` and sources it before invoking th
 - `NEXT_PUBLIC_SUPABASE_URL` or `SUPABASE_URL`
 - `D3_CLOUDFLARED_PATH` when `cloudflared` is not on `PATH`
 - `D3_TUNNEL_HEALTH_TIMEOUT_SECS` to override the 120-second DNS/tunnel health window
+- `D3_TUNNEL_BOOTSTRAP_MAX_ATTEMPTS`: fresh tunnel attempts before failing. Defaults to `3`.
+- `D3_TUNNEL_BOOTSTRAP_BACKOFF_SECS`: delay between tunnel attempts. Defaults to `5`.
 
 D3 treats `/compute/fill` dispatch as a live tunnel propagation seam. Transient
 `provider_unreachable`, `http_530`, and 502/503/504 fill failures are retried
