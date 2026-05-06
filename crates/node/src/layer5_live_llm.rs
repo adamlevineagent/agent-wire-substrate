@@ -8,7 +8,7 @@ use agent_wire_compute_market::{
 };
 use agent_wire_foundation::{
     CreditAmount, CrossGraphRef, EventCursor, EventEnvelope, EventId, EventKind, FoundationError,
-    HandlePath, PriceCurve, SettlementIntent,
+    HandlePath, Layer5AdapterId, Layer5Provider, PriceCurve, SettlementIntent,
 };
 use agent_wire_substrate::{compose_substrate_node, NodeConfig, NodeRuntime};
 use serde::{Deserialize, Serialize};
@@ -27,7 +27,7 @@ const LAYER5_PROMPT: &str = "Return exactly the token SUBSTRATE_ROUNDTRIP_OK and
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Layer5LiveLlmReport {
     pub name: String,
-    pub provider: String,
+    pub provider: Layer5Provider,
     pub model_id: String,
     pub live_provider: bool,
     pub subtests: Vec<Layer5Subtest>,
@@ -43,7 +43,7 @@ impl Layer5LiveLlmReport {
     pub fn to_markdown(&self) -> String {
         let mut output = String::from("# Layer 5 Live LLM Compute Roundtrip Validation\n\n");
         output.push_str("Provider: ");
-        output.push_str(&self.provider);
+        output.push_str(self.provider.slug());
         output.push_str("\n\nModel: `");
         output.push_str(&self.model_id);
         output.push_str("`\n\n");
@@ -82,7 +82,7 @@ impl Layer5LiveLlmReport {
     fn failed_provider_config(reason: String) -> Self {
         Self {
             name: "wave-2-layer-5-live-llm-compute-roundtrip".to_owned(),
-            provider: "unresolved".to_owned(),
+            provider: Layer5Provider::Unresolved,
             model_id: env::var("LAYER5_MODEL")
                 .or_else(|_| env::var("LM_STUDIO_MODEL"))
                 .or_else(|_| env::var("OPENROUTER_MODEL"))
@@ -100,7 +100,7 @@ impl Layer5LiveLlmReport {
     fn failed_bootstrap(reason: String) -> Self {
         Self {
             name: "wave-2-layer-5-live-llm-compute-roundtrip".to_owned(),
-            provider: "lm_studio".to_owned(),
+            provider: Layer5Provider::LmStudio,
             model_id: DEFAULT_LM_STUDIO_MODEL.to_owned(),
             live_provider: true,
             subtests: vec![Layer5Subtest {
@@ -148,53 +148,42 @@ pub enum Layer5Status {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Layer5ProviderConfig {
-    pub provider: String,
+    pub provider: Layer5Provider,
     pub model_id: String,
     pub base_url: String,
-    pub adapter_id: String,
+    pub adapter_id: Layer5AdapterId,
     pub live_provider: bool,
 }
 
 impl Layer5ProviderConfig {
     pub fn openai_compatible(
-        provider: impl Into<String>,
+        provider: Layer5Provider,
         model_id: impl Into<String>,
         base_url: impl Into<String>,
-        adapter_id: impl Into<String>,
     ) -> Self {
         Self {
-            provider: provider.into(),
+            provider,
             model_id: model_id.into(),
             base_url: base_url.into(),
-            adapter_id: adapter_id.into(),
+            adapter_id: provider.adapter_id(),
             live_provider: true,
         }
     }
 
     pub fn openrouter(model_id: impl Into<String>, base_url: impl Into<String>) -> Self {
-        Self::openai_compatible(
-            "openrouter",
-            model_id,
-            base_url,
-            "openrouter-chat-completions",
-        )
+        Self::openai_compatible(Layer5Provider::OpenRouter, model_id, base_url)
     }
 
     pub fn lm_studio(model_id: impl Into<String>, base_url: impl Into<String>) -> Self {
-        Self::openai_compatible(
-            "lm_studio",
-            model_id,
-            base_url,
-            "lm-studio-chat-completions",
-        )
+        Self::openai_compatible(Layer5Provider::LmStudio, model_id, base_url)
     }
 
     pub fn fixture(model_id: impl Into<String>) -> Self {
         Self {
-            provider: "deterministic-fixture".to_owned(),
+            provider: Layer5Provider::DeterministicFixture,
             model_id: model_id.into(),
             base_url: "memory://layer5-fixture".to_owned(),
-            adapter_id: "fixture-live-llm-adapter".to_owned(),
+            adapter_id: Layer5Provider::DeterministicFixture.adapter_id(),
             live_provider: false,
         }
     }
@@ -232,7 +221,7 @@ where
     let mut graph = LiveLlmComputeGraph::new(runtime, provider.clone(), adapter)?;
     let mut report = Layer5LiveLlmReport {
         name: "wave-2-layer-5-live-llm-compute-roundtrip".to_owned(),
-        provider: provider.provider.clone(),
+        provider: provider.provider,
         model_id: provider.model_id.clone(),
         live_provider: provider.live_provider,
         subtests: Vec::new(),
@@ -324,7 +313,7 @@ where
 
         let mut offer = self.runtime.markets.compute_offer.clone();
         offer.model_id = self.provider.model_id.clone();
-        offer.adapter = ExecutionAdapterId(self.provider.adapter_id.clone());
+        offer.adapter = ExecutionAdapterId(self.provider.adapter_id.slug().to_owned());
         offer.price = PriceCurve {
             base: CreditAmount::from_sats(50),
             per_unit: CreditAmount::from_sats(1),
@@ -359,7 +348,8 @@ where
         job.payload.requester = "layer5-live-requester".to_owned();
         job.payload.requester_handle = self.requester.clone();
         job.payload.invocation.model_id = self.provider.model_id.clone();
-        job.payload.invocation.adapter = ExecutionAdapterId(self.provider.adapter_id.clone());
+        job.payload.invocation.adapter =
+            ExecutionAdapterId(self.provider.adapter_id.slug().to_owned());
         job.payload.invocation.prompt_ref =
             ref_path("layer5-prompt", 1).map_err(|error| error.to_string())?;
         job.payload.invocation.input_ref = None;
@@ -571,11 +561,11 @@ struct Layer5Settlement {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ChatCompletionsProviderConfig {
-    pub provider: String,
+    pub provider: Layer5Provider,
     pub model_id: String,
     base_url: String,
     api_key: Option<String>,
-    adapter_id: String,
+    adapter_id: Layer5AdapterId,
 }
 
 impl ChatCompletionsProviderConfig {
@@ -594,18 +584,21 @@ impl ChatCompletionsProviderConfig {
     }
 
     fn from_env(provider_envs: &[&str], model_envs: &[&str]) -> Result<Self, String> {
-        let provider = first_env(provider_envs)
-            .map(normalize_provider_name)
-            .unwrap_or_else(|| {
+        let provider = match first_env(provider_envs) {
+            Some(provider) => {
+                Layer5Provider::parse(&provider).map_err(|error| error.to_string())?
+            }
+            None => {
                 if non_empty_env("OPENROUTER_API_KEY").is_some() {
-                    "openrouter".to_owned()
+                    Layer5Provider::OpenRouter
                 } else {
-                    "lm_studio".to_owned()
+                    Layer5Provider::LmStudio
                 }
-            });
+            }
+        };
 
-        match provider.as_str() {
-            "openrouter" => {
+        match provider {
+            Layer5Provider::OpenRouter => {
                 let api_key = non_empty_env("OPENROUTER_API_KEY").ok_or_else(|| {
                     "OPENROUTER_API_KEY is required when provider=openrouter".to_owned()
                 })?;
@@ -619,10 +612,10 @@ impl ChatCompletionsProviderConfig {
                     model_id,
                     base_url,
                     api_key: Some(api_key),
-                    adapter_id: "openrouter-chat-completions".to_owned(),
+                    adapter_id: provider.adapter_id(),
                 })
             }
-            "lm_studio" => {
+            Layer5Provider::LmStudio => {
                 let base_url = non_empty_env("LM_STUDIO_BASE_URL")
                     .unwrap_or_else(|| DEFAULT_LM_STUDIO_BASE_URL.to_owned());
                 let model_id =
@@ -632,21 +625,20 @@ impl ChatCompletionsProviderConfig {
                     model_id,
                     base_url,
                     api_key: None,
-                    adapter_id: "lm-studio-chat-completions".to_owned(),
+                    adapter_id: provider.adapter_id(),
                 })
             }
-            other => Err(format!(
-                "unsupported live LLM provider `{other}`; expected `lm_studio` or `openrouter`"
+            Layer5Provider::DeterministicFixture | Layer5Provider::Unresolved => Err(format!(
+                "unsupported live LLM provider `{provider}`; expected `lm_studio` or `openrouter`"
             )),
         }
     }
 
     pub(crate) fn to_layer5_provider_config(&self) -> Layer5ProviderConfig {
         Layer5ProviderConfig::openai_compatible(
-            self.provider.clone(),
+            self.provider,
             self.model_id.clone(),
             self.base_url.clone(),
-            self.adapter_id.clone(),
         )
     }
 
@@ -659,8 +651,8 @@ impl ChatCompletionsProviderConfig {
         &self.base_url
     }
 
-    pub(crate) fn adapter_id(&self) -> &str {
-        &self.adapter_id
+    pub(crate) fn adapter_id(&self) -> Layer5AdapterId {
+        self.adapter_id
     }
 
     pub(crate) fn chat_completion(
@@ -681,7 +673,7 @@ impl ChatCompletionsProviderConfig {
         if let Some(api_key) = &self.api_key {
             request = request.set("Authorization", &format!("Bearer {api_key}"));
         }
-        if self.provider == "openrouter" {
+        if self.provider == Layer5Provider::OpenRouter {
             request = request
                 .set("HTTP-Referer", "https://agent-wire-substrate.local")
                 .set("X-Title", report_title);
@@ -694,26 +686,34 @@ impl ChatCompletionsProviderConfig {
                 let body = response.into_string().unwrap_or_default();
                 return Err(format!(
                     "{} returned HTTP {status}: {}",
-                    self.provider,
+                    self.provider.slug(),
                     trim_for_report(&body)
                 ));
             }
-            Err(error) => return Err(format!("{} request failed: {error}", self.provider)),
+            Err(error) => return Err(format!("{} request failed: {error}", self.provider.slug())),
         };
         let request_id = response.header("x-request-id").map(ToOwned::to_owned);
-        let body: Value = response
-            .into_json()
-            .map_err(|error| format!("{} response was not valid JSON: {error}", self.provider))?;
+        let body: Value = response.into_json().map_err(|error| {
+            format!(
+                "{} response was not valid JSON: {error}",
+                self.provider.slug()
+            )
+        })?;
         let first_choice = body
             .get("choices")
             .and_then(Value::as_array)
             .and_then(|choices| choices.first())
-            .ok_or_else(|| format!("{} response did not include choices[0]", self.provider))?;
+            .ok_or_else(|| {
+                format!(
+                    "{} response did not include choices[0]",
+                    self.provider.slug()
+                )
+            })?;
         let content = first_choice
             .get("message")
             .and_then(|message| message.get("content"))
             .and_then(Value::as_str)
-            .ok_or_else(|| missing_content_reason(&self.provider, first_choice))?;
+            .ok_or_else(|| missing_content_reason(self.provider, first_choice))?;
         Ok((content.to_owned(), request_id))
     }
 }
@@ -868,15 +868,7 @@ fn non_empty_env(name: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-fn normalize_provider_name(raw: String) -> String {
-    match raw.trim().to_ascii_lowercase().replace('-', "_").as_str() {
-        "lmstudio" | "lm_studio" => "lm_studio".to_owned(),
-        "openrouter" => "openrouter".to_owned(),
-        other => other.to_owned(),
-    }
-}
-
-fn missing_content_reason(provider: &str, choice: &Value) -> String {
+fn missing_content_reason(provider: Layer5Provider, choice: &Value) -> String {
     let finish_reason = choice
         .get("finish_reason")
         .and_then(|value| value.as_str())
@@ -891,7 +883,8 @@ fn missing_content_reason(provider: &str, choice: &Value) -> String {
         })
         .unwrap_or_else(|| "none".to_owned());
     format!(
-        "{provider} response did not include text content (finish_reason={finish_reason}, message_keys={message_keys})"
+        "{} response did not include text content (finish_reason={finish_reason}, message_keys={message_keys})",
+        provider.slug()
     )
 }
 

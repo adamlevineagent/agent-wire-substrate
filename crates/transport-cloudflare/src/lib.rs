@@ -337,7 +337,7 @@ fn bundled_cloudflared_binary_candidates_for(
             candidates.push(
                 contents_dir
                     .join("Resources")
-                    .join("cloudflared")
+                    .join(CLOUDFLARED_BINARY_NAME)
                     .join(binary_name),
             );
             candidates.push(contents_dir.join("Resources").join(binary_name));

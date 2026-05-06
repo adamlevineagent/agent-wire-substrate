@@ -19,4 +19,7 @@ pub enum FoundationError {
 
     #[error("{field} uses a reserved foundation name")]
     ReservedName { field: &'static str },
+
+    #[error("unknown live LLM provider `{raw}`")]
+    UnknownLiveLlmProvider { raw: String },
 }

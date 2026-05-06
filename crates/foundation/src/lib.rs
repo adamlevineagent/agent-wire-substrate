@@ -5,6 +5,7 @@ pub mod economics;
 pub mod error;
 pub mod events;
 pub mod identity;
+pub mod llm;
 pub mod local_state;
 pub mod mirror;
 pub mod namespace;
@@ -28,6 +29,7 @@ pub use identity::{
     MasterVerifier, OperatorEmail, PrivateAliasMapping, PrivateGraphRegistration,
     ReputationSnapshot, SignatureAlgorithm, SignedStatement,
 };
+pub use llm::{Layer5AdapterId, Layer5Provider};
 pub use local_state::{
     Clock, KeyHandle, LocalStateDocError, LocalStateDocument, LocalStateFrontmatter,
     LocalStateRecordId, LocalStateRecordKind, LocalStateRef, LocalStateSchema,

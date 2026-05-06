@@ -158,13 +158,18 @@ mod tests {
 
     #[test]
     fn layer5_live_llm_provider_config_supports_lm_studio() {
+        use agent_wire_foundation::{Layer5AdapterId, Layer5Provider};
+
         let provider =
             Layer5ProviderConfig::lm_studio("granite-4-micro", "http://127.0.0.1:1234/v1");
 
-        assert_eq!(provider.provider, "lm_studio");
+        assert_eq!(provider.provider, Layer5Provider::LmStudio);
         assert_eq!(provider.model_id, "granite-4-micro");
         assert_eq!(provider.base_url, "http://127.0.0.1:1234/v1");
-        assert_eq!(provider.adapter_id, "lm-studio-chat-completions");
+        assert_eq!(
+            provider.adapter_id,
+            Layer5AdapterId::LmStudioChatCompletions
+        );
     }
 
     #[test]
