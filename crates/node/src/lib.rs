@@ -161,10 +161,10 @@ mod tests {
         use agent_wire_foundation::{Layer5AdapterId, Layer5Provider};
 
         let provider =
-            Layer5ProviderConfig::lm_studio("granite-4-micro", "http://127.0.0.1:1234/v1");
+            Layer5ProviderConfig::lm_studio("gemma-4-e2b-it-mlx", "http://127.0.0.1:1234/v1");
 
         assert_eq!(provider.provider, Layer5Provider::LmStudio);
-        assert_eq!(provider.model_id, "granite-4-micro");
+        assert_eq!(provider.model_id, "gemma-4-e2b-it-mlx");
         assert_eq!(provider.base_url, "http://127.0.0.1:1234/v1");
         assert_eq!(
             provider.adapter_id,

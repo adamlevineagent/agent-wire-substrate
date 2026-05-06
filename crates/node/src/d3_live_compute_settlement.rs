@@ -20,7 +20,7 @@ use crate::layer5_live_llm::ChatCompletionsProviderConfig;
 use crate::mainnet_auth::load_persisted_mainnet_credential;
 use crate::v1_runtime::default_state_dir;
 
-const DEFAULT_D3_MODEL: &str = "granite-4-micro";
+const DEFAULT_D3_MODEL: &str = "gemma-4-e2b-it-mlx";
 const D3_PROMPT: &str = "Return exactly this sentence: D3 live compute settlement green.";
 const DEFAULT_FILL_RETRY_TIMEOUT_SECS: u64 = 180;
 const DEFAULT_FILL_RETRY_MAX_ATTEMPTS: u32 = 24;

@@ -19,7 +19,7 @@ use uuid::Uuid;
 const DEFAULT_OPENROUTER_BASE_URL: &str = "https://openrouter.ai/api/v1";
 const DEFAULT_OPENROUTER_MODEL: &str = "inception/mercury-2";
 const DEFAULT_LM_STUDIO_BASE_URL: &str = "http://127.0.0.1:1234/v1";
-const DEFAULT_LM_STUDIO_MODEL: &str = "granite-4-micro";
+const DEFAULT_LM_STUDIO_MODEL: &str = "gemma-4-e2b-it-mlx";
 const LAYER5_MAX_TOKENS: u32 = 160;
 const LAYER5_SENTINEL: &str = "SUBSTRATE_ROUNDTRIP_OK";
 const LAYER5_PROMPT: &str = "Return exactly the token SUBSTRATE_ROUNDTRIP_OK and nothing else.";

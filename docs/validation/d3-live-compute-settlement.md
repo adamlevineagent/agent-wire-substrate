@@ -14,7 +14,7 @@ D3 is the first full live substrate-to-mainnet compute settlement gate. It keeps
 
 The script accepts `D3_ENV_FILE=/path/to/.env` and sources it before invoking
 the CLI. D3 defaults to local LM Studio at `http://127.0.0.1:1234/v1` with
-`granite-4-micro`, so the live LLM path no longer requires an OpenRouter key.
+`gemma-4-e2b-it-mlx`, so the live LLM path no longer requires an OpenRouter key.
 D3 reuses the persisted substrate-node Wire credential. The mainnet endpoint
 defaults to `https://newsbleach.com/api/v1`, and may be overridden with
 `WIRE_MAINNET_ENDPOINT`. D3 has no settlement database secret. Optional runtime

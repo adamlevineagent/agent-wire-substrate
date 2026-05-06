@@ -11,7 +11,7 @@ Layer 5 is the first non-synthetic substrate validation gate. It keeps the Layer
 - Requester reads the completion and settles credits within the job budget.
 
 The default provider is a local LM Studio OpenAI-compatible server at
-`http://127.0.0.1:1234/v1` with `granite-4-micro`. Override with:
+`http://127.0.0.1:1234/v1` with `gemma-4-e2b-it-mlx`. Override with:
 
 - `LAYER5_PROVIDER=lm_studio` or `LAYER5_PROVIDER=openrouter`
 - `LM_STUDIO_BASE_URL`

@@ -31,7 +31,7 @@ The script accepts `L6_ENV_FILE=/path/to/.env` and sources it before invoking th
 - D3 fill retry controls documented in `docs/validation/d3-live-compute-settlement.md`
 
 By default, L6 inherits D3's local LM Studio provider
-(`http://127.0.0.1:1234/v1`, `granite-4-micro`) and the transport crate's
+(`http://127.0.0.1:1234/v1`, `gemma-4-e2b-it-mlx`) and the transport crate's
 bundled/downloaded cloudflared resolution. It does not require
 `OPENROUTER_API_KEY` or a cloudflared path environment override.
 
