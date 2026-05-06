@@ -19,14 +19,14 @@ repository = "https://github.com/agent-wire-com/agent-wire-substrate"
 rust-version = "1.78"
 
 [workspace.dependencies]
-agent-wire-compute-market = { version = "0.1.0", path = "crates/compute-market" }
-agent-wire-compiler = { version = "0.1.0", path = "crates/compiler" }
-agent-wire-contracts = { version = "0.1.0", path = "crates/contracts" }
-agent-wire-foundation = { version = "0.1.0", path = "crates/foundation" }
-agent-wire-relay-market = { version = "0.1.0", path = "crates/relay-market" }
-agent-wire-storage-market = { version = "0.1.0", path = "crates/storage-market" }
-agent-wire-substrate = { version = "0.1.0", path = "crates/substrate" }
-agent-wire-transport-cloudflare = { version = "0.1.0", path = "crates/transport-cloudflare" }
+agent-wire-compute-market = { version = "1.0", path = "crates/compute-market" }
+agent-wire-compiler = { version = "1.0", path = "crates/compiler" }
+agent-wire-contracts = { version = "1.0", path = "crates/contracts" }
+agent-wire-foundation = { version = "1.0", path = "crates/foundation" }
+agent-wire-relay-market = { version = "1.0", path = "crates/relay-market" }
+agent-wire-storage-market = { version = "1.0", path = "crates/storage-market" }
+agent-wire-substrate = { version = "1.0", path = "crates/substrate" }
+agent-wire-transport-cloudflare = { version = "1.0", path = "crates/transport-cloudflare" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
