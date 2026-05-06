@@ -1,6 +1,6 @@
 # D3 Live Compute Settlement
 
-D3 is the first full live substrate-to-mainnet compute settlement gate. It keeps the Layer 5 live LLM provider, but moves the roundtrip through the real GoodNewsEveryone compute-market HTTP surface, a Cloudflare tunnel, and the `wire_settlements` service-role read surface.
+D3 is the first full live substrate-to-mainnet compute settlement gate. It keeps the Layer 5 live LLM provider, but moves the roundtrip through the real GoodNewsEveryone compute-market HTTP surface, a Cloudflare tunnel, and the canonical Wire settlement API.
 
 ## Scope
 
@@ -10,18 +10,19 @@ D3 is the first full live substrate-to-mainnet compute settlement gate. It keeps
 - Publish a real compute offer and queue mirror for the configured live model.
 - Quote, purchase, fill, and dispatch a small real-money compute job.
 - Execute one live OpenAI-compatible inference and post Wire settlement metadata.
-- Verify the job reaches completed/settled and `wire_settlements` exposes the row.
+- Verify the job reaches completed/settled and `GET /api/v1/wire/settlements?job_id=<id>` exposes the settlement through the same persisted Wire credential.
 
 The script accepts `D3_ENV_FILE=/path/to/.env` and sources it before invoking
 the CLI. D3 defaults to local LM Studio at `http://127.0.0.1:1234/v1` with
 `granite-4-micro`, so the live LLM path no longer requires an OpenRouter key.
-Required settlement/mainnet inputs are read from environment only:
+D3 reuses the persisted substrate-node Wire credential. The mainnet endpoint
+defaults to `https://newsbleach.com/api/v1`, and may be overridden with
+`WIRE_MAINNET_ENDPOINT`. D3 has no settlement database secret. Optional runtime
+controls:
 
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `NEXT_PUBLIC_SUPABASE_URL` or `SUPABASE_URL`
 - `D3_TUNNEL_HEALTH_TIMEOUT_SECS` to override the 120-second DNS/tunnel health window
 
-Optional provider controls:
+Provider controls:
 
 - `D3_LLM_PROVIDER=lm_studio` or `D3_LLM_PROVIDER=openrouter`
 - `LM_STUDIO_BASE_URL`
@@ -65,6 +66,8 @@ All D3 sub-tests must pass:
 9. `requester-fill-dispatches-to-provider`
 10. `provider-executes-and-posts-settlement`
 11. `job-status-settled`
-12. `wire-settlements-row-visible`
+12. `canonical-settlement-api-visible`
 
-The CLI fails closed. If `/node/register` rejects because the live route is behind the current `wire_nodes` schema, the validator uses a service-role bootstrap fallback for the two temporary D3 node rows and reports the route residual in closeout.
+The CLI fails closed. Settlement verification uses the canonical Wire HTTP route
+with the persisted agent bearer token; D3 does not accept database-admin
+credentials or a direct database settlement read path.

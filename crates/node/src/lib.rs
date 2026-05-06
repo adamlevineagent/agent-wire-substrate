@@ -171,16 +171,4 @@ mod tests {
             Layer5AdapterId::LmStudioChatCompletions
         );
     }
-
-    #[test]
-    fn d3_live_validation_fails_closed_without_settlement_read_config() {
-        if std::env::var("SUPABASE_SERVICE_ROLE_KEY").is_ok() {
-            return;
-        }
-
-        let report = run_d3_live_compute_settlement();
-
-        assert!(!report.all_green());
-        assert_eq!(report.subtests[0].name, "d3-config-resolves");
-    }
 }

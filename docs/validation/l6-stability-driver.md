@@ -1,6 +1,6 @@
 # L6 Stability Driver
 
-The L6 driver is the substrate-side harness for long-running reference-client stability. It reuses the D3 live compute settlement validator as the canonical per-cycle primitive: every cycle provisions or reuses the mainnet surfaces required by D3, runs a Cloudflare-backed provider, buys/fills a small compute job, posts settlement, and verifies `wire_settlements`.
+The L6 driver is the substrate-side harness for long-running reference-client stability. It reuses the D3 live compute settlement validator as the canonical per-cycle primitive: every cycle provisions or reuses the mainnet surfaces required by D3, runs a Cloudflare-backed provider, buys/fills a small compute job, posts settlement, and verifies settlement visibility through the canonical Wire settlement API.
 
 Because each L6 cycle creates a fresh Cloudflare route, D3's fill step uses a
 bounded retry policy for transient tunnel-propagation dispatch failures. Retries
@@ -27,8 +27,6 @@ five kill-points.
 
 The script accepts `L6_ENV_FILE=/path/to/.env` and sources it before invoking the CLI. It passes through the D3-required variables:
 
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `NEXT_PUBLIC_SUPABASE_URL` or `SUPABASE_URL`
 - D3 live LLM provider controls documented in `docs/validation/d3-live-compute-settlement.md`
 - D3 fill retry controls documented in `docs/validation/d3-live-compute-settlement.md`
 
@@ -59,7 +57,7 @@ scripts/l6-failure-injection.sh
 For the driver harness itself:
 
 1. Every requested cycle passes D3.
-2. Every completed cycle has a settled `wire_settlements` row.
+2. Every completed cycle is visible through the canonical settlement API.
 3. The report includes p50/p99 cycle latency and RSS snapshots.
 4. The observability report has `all_invariants_held=true`.
 5. The process exits non-zero on the first failed cycle or invariant violation.

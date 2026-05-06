@@ -13,7 +13,6 @@ use std::time::{Duration, Instant};
 use agent_wire_transport_cloudflare::ensure_cloudflared_binary;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -22,7 +21,6 @@ use crate::mainnet_auth::load_persisted_mainnet_credential;
 use crate::v1_runtime::default_state_dir;
 
 const DEFAULT_D3_MODEL: &str = "granite-4-micro";
-const DEFAULT_SUPABASE_URL: &str = "https://supabase.newsbleach.com";
 const D3_PROMPT: &str = "Return exactly this sentence: D3 live compute settlement green.";
 const DEFAULT_FILL_RETRY_TIMEOUT_SECS: u64 = 180;
 const DEFAULT_FILL_RETRY_MAX_ATTEMPTS: u32 = 24;
@@ -32,7 +30,7 @@ const DEFAULT_FILL_RETRY_MAX_JITTER_MILLIS: u64 = 1_000;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct D3LiveComputeSettlementReport {
     pub endpoint: String,
-    pub supabase_url: String,
+    pub settlement_api_url: String,
     pub model_id: String,
     pub provider_node_id: Option<String>,
     pub requester_node_id: Option<String>,
@@ -60,8 +58,8 @@ impl D3LiveComputeSettlementReport {
         output.push_str("Endpoint: `");
         output.push_str(&self.endpoint);
         output.push_str("`\n\n");
-        output.push_str("Supabase read surface: `");
-        output.push_str(&self.supabase_url);
+        output.push_str("Settlement read surface: `");
+        output.push_str(&self.settlement_api_url);
         output.push_str("`\n\n");
         output.push_str("Model: `");
         output.push_str(&self.model_id);
@@ -123,7 +121,7 @@ impl D3LiveComputeSettlementReport {
 
         output.push_str("## Result\n\n");
         output.push_str(if self.all_green() {
-            "D3 is green: the provider accepted a real mainnet dispatch, executed a live LLM call, posted settlement, and `wire_settlements` exposes the cleared row.\n\n"
+            "D3 is green: the provider accepted a real mainnet dispatch, executed a live LLM call, posted settlement, and the canonical settlement API exposes the cleared row.\n\n"
         } else {
             "D3 failed closed; see the sub-test reasons below.\n\n"
         });
@@ -172,8 +170,7 @@ pub enum D3Status {
 #[derive(Debug, Clone)]
 struct D3Config {
     endpoint: String,
-    supabase_url: String,
-    service_role_key: String,
+    settlement_api_url: String,
     llm_provider: ChatCompletionsProviderConfig,
     model_id: String,
     cloudflared_path: PathBuf,
@@ -266,7 +263,7 @@ fn run_d3_live_compute_settlement_inner(
     })?;
     let mut report = D3LiveComputeSettlementReport {
         endpoint: config.endpoint.clone(),
-        supabase_url: config.supabase_url.clone(),
+        settlement_api_url: config.settlement_api_url.clone(),
         model_id: config.model_id.clone(),
         provider_node_id: None,
         requester_node_id: None,
@@ -281,10 +278,10 @@ fn run_d3_live_compute_settlement_inner(
         requester_adjustment: None,
         subtests: vec![passed_step(
             "d3-config-resolves",
-            "all live endpoints, settlement read credentials, LLM provider config, and cloudflared binary are present",
+            "all live endpoints, canonical settlement API, LLM provider config, and cloudflared binary are present",
             vec![
                 format!("endpoint {}", config.endpoint),
-                format!("supabase {}", config.supabase_url),
+                format!("settlement API {}", config.settlement_api_url),
                 format!(
                     "llm provider {} via {} at {}",
                     config.llm_provider.provider,
@@ -321,7 +318,6 @@ fn run_d3_live_compute_settlement_inner(
     let provider = ensure_node(
         &config,
         &credential.api_token,
-        &credential.identity.agent_id,
         &format!("d3-kramer-provider-{suffix}"),
     )
     .map_err(|reason| (report.clone(), "provider-node-registers", reason))?;
@@ -338,7 +334,6 @@ fn run_d3_live_compute_settlement_inner(
     let requester = ensure_node(
         &config,
         &credential.api_token,
-        &credential.identity.agent_id,
         &format!("d3-kramer-requester-{suffix}"),
     )
     .map_err(|reason| (report.clone(), "requester-node-registers", reason))?;
@@ -448,8 +443,12 @@ fn run_d3_live_compute_settlement_inner(
         vec![format!("job status {}", trim_for_report(&job.to_string()))],
     ));
 
-    let settlement = read_settlement(&config, &purchase.uuid_job_id)
-        .map_err(|reason| (report.clone(), "wire-settlements-row-visible", reason))?;
+    let settlement = read_settlement(
+        &config.settlement_api_url,
+        &purchase.uuid_job_id,
+        &credential.api_token,
+    )
+    .map_err(|reason| (report.clone(), "canonical-settlement-api-visible", reason))?;
     report.settlement_id = settlement
         .get("settlement_id")
         .and_then(Value::as_str)
@@ -464,8 +463,8 @@ fn run_d3_live_compute_settlement_inner(
         .get("requester_adjustment")
         .and_then(Value::as_i64);
     report.subtests.push(passed_step(
-        "wire-settlements-row-visible",
-        "service_role can read the real settlement clearance row from wire_settlements",
+        "canonical-settlement-api-visible",
+        "the canonical settlement API exposes the real settlement clearance row",
         vec![format!(
             "settlement {}",
             trim_for_report(&settlement.to_string())
@@ -483,9 +482,7 @@ impl D3LiveComputeSettlementReport {
         Self {
             endpoint: env::var("WIRE_MAINNET_ENDPOINT")
                 .unwrap_or_else(|_| "https://newsbleach.com/api/v1".to_owned()),
-            supabase_url: env::var("NEXT_PUBLIC_SUPABASE_URL")
-                .or_else(|_| env::var("SUPABASE_URL"))
-                .unwrap_or_else(|_| DEFAULT_SUPABASE_URL.to_owned()),
+            settlement_api_url: default_settlement_api_url(),
             model_id: env::var("D3_MODEL")
                 .or_else(|_| env::var("LM_STUDIO_MODEL"))
                 .or_else(|_| env::var("LAYER5_MODEL"))
@@ -513,16 +510,7 @@ impl D3Config {
             .unwrap_or_else(|_| "https://newsbleach.com/api/v1".to_owned())
             .trim_end_matches('/')
             .to_owned();
-        let supabase_url = env::var("SUPABASE_URL")
-            .or_else(|_| env::var("NEXT_PUBLIC_SUPABASE_URL"))
-            .unwrap_or_else(|_| DEFAULT_SUPABASE_URL.to_owned())
-            .trim_end_matches('/')
-            .to_owned();
-        let service_role_key = env::var("SUPABASE_SERVICE_ROLE_KEY")
-            .map_err(|_| "SUPABASE_SERVICE_ROLE_KEY is not set".to_owned())?;
-        if service_role_key.trim().is_empty() {
-            return Err("SUPABASE_SERVICE_ROLE_KEY is present but empty".to_owned());
-        }
+        let settlement_api_url = settlement_api_url_for_endpoint(&endpoint);
         let llm_provider = ChatCompletionsProviderConfig::from_d3_env()?;
         let model_id = llm_provider.model_id.clone();
         let state_dir = default_state_dir();
@@ -544,8 +532,7 @@ impl D3Config {
 
         Ok(Self {
             endpoint,
-            supabase_url,
-            service_role_key,
+            settlement_api_url,
             llm_provider,
             model_id,
             cloudflared_path,
@@ -558,14 +545,6 @@ impl D3Config {
 
     fn api_url(&self, path: &str) -> String {
         format!("{}/{}", self.endpoint, path.trim_start_matches('/'))
-    }
-
-    fn rest_url(&self, path: &str) -> String {
-        format!(
-            "{}/rest/v1/{}",
-            self.supabase_url,
-            path.trim_start_matches('/')
-        )
     }
 }
 
@@ -629,29 +608,8 @@ fn env_u64(name: &str, default: u64) -> u64 {
         .unwrap_or(default)
 }
 
-fn ensure_node(
-    config: &D3Config,
-    api_token: &str,
-    agent_id: &str,
-    name: &str,
-) -> Result<NodeInfo, String> {
-    match register_node(config, api_token, name) {
-        Ok(node) => Ok(node),
-        Err(register_error) => {
-            let mut node =
-                bootstrap_node_via_service_role(config, agent_id, name).map_err(|bootstrap_error| {
-                format!(
-                    "node/register failed ({register_error}); service-role bootstrap also failed ({bootstrap_error})"
-                )
-            })?;
-            node.registration_detail = format!(
-                "node/register failed ({}); {}",
-                trim_for_report(&register_error),
-                node.registration_detail
-            );
-            Ok(node)
-        }
-    }
+fn ensure_node(config: &D3Config, api_token: &str, name: &str) -> Result<NodeInfo, String> {
+    register_node(config, api_token, name)
 }
 
 fn register_node(config: &D3Config, api_token: &str, name: &str) -> Result<NodeInfo, String> {
@@ -667,57 +625,6 @@ fn register_node(config: &D3Config, api_token: &str, name: &str) -> Result<NodeI
     Ok(NodeInfo {
         id: id.to_owned(),
         registration_detail: "node/register succeeded".to_owned(),
-    })
-}
-
-fn bootstrap_node_via_service_role(
-    config: &D3Config,
-    agent_id: &str,
-    name: &str,
-) -> Result<NodeInfo, String> {
-    let agent_rows = rest_get(
-        config,
-        &format!(
-            "wire_agents?id=eq.{}&select=id,operator_id",
-            percent_encode_component(agent_id)
-        ),
-    )?;
-    let agent = agent_rows
-        .as_array()
-        .and_then(|rows| rows.first())
-        .ok_or_else(|| format!("wire_agents row not found for agent_id {agent_id}"))?;
-    let operator_id = agent
-        .get("operator_id")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "wire_agents.operator_id is missing".to_owned())?;
-    let node_handle = sanitize_node_handle(name);
-    let now = now_rfc3339();
-    let payload = json!({
-        "name": name,
-        "agent_id": agent_id,
-        "operator_id": operator_id,
-        "node_handle": node_handle,
-        "capabilities": ["compute"],
-        "status": "online",
-        "last_heartbeat": now,
-        "last_seen_at": now
-    });
-    let inserted = rest_post(
-        config,
-        "wire_nodes?select=id,name,node_handle,status",
-        payload,
-    )?;
-    let id = inserted
-        .as_array()
-        .and_then(|rows| rows.first())
-        .and_then(|row| row.get("id"))
-        .and_then(Value::as_str)
-        .ok_or_else(|| format!("wire_nodes insert response missing id: {inserted}"))?;
-    Ok(NodeInfo {
-        id: id.to_owned(),
-        registration_detail: format!(
-            "node/register fallback: service_role bootstrap succeeded with node_handle `{node_handle}`"
-        ),
     })
 }
 
@@ -1035,18 +942,20 @@ fn wait_for_job_settled(config: &D3Config, api_token: &str, job_id: &str) -> Res
     Err("job did not reach completed/settled before timeout".to_owned())
 }
 
-fn read_settlement(config: &D3Config, uuid_job_id: &str) -> Result<Value, String> {
-    let rows = rest_get(
-        config,
-        &format!(
-            "wire_settlements?job_id=eq.{}&select=*&limit=1",
-            percent_encode_component(uuid_job_id)
-        ),
-    )?;
-    rows.as_array()
-        .and_then(|rows| rows.first())
-        .cloned()
-        .ok_or_else(|| format!("wire_settlements row not found for job_id {uuid_job_id}"))
+fn read_settlement(
+    settlement_api_url: &str,
+    uuid_job_id: &str,
+    api_token: &str,
+) -> Result<Value, String> {
+    let url = format!(
+        "{}?job_id={}",
+        settlement_api_url.trim_end_matches('/'),
+        percent_encode_component(uuid_job_id)
+    );
+    let response = api_get(&url, api_token)?;
+    response.get("settlement").cloned().ok_or_else(|| {
+        format!("settlement API response missing settlement for job_id {uuid_job_id}: {response}")
+    })
 }
 
 fn start_provider_server(config: D3Config) -> Result<ProviderServer, String> {
@@ -1386,28 +1295,6 @@ fn api_post(url: &str, api_token: &str, payload: Value) -> Result<Value, String>
     parse_ureq_response(response)
 }
 
-fn rest_get(config: &D3Config, path: &str) -> Result<Value, String> {
-    let url = config.rest_url(path);
-    let auth_header = format!("Bearer {}", config.service_role_key);
-    let response = ureq::get(&url)
-        .set("apikey", &config.service_role_key)
-        .set("Authorization", &auth_header)
-        .call();
-    parse_ureq_response(response)
-}
-
-fn rest_post(config: &D3Config, path: &str, payload: Value) -> Result<Value, String> {
-    let url = config.rest_url(path);
-    let auth_header = format!("Bearer {}", config.service_role_key);
-    let response = ureq::post(&url)
-        .set("apikey", &config.service_role_key)
-        .set("Authorization", &auth_header)
-        .set("Content-Type", "application/json")
-        .set("Prefer", "return=representation")
-        .send_json(payload);
-    parse_ureq_response(response)
-}
-
 fn parse_ureq_response(response: Result<ureq::Response, ureq::Error>) -> Result<Value, String> {
     match response {
         Ok(response) => response
@@ -1418,26 +1305,6 @@ fn parse_ureq_response(response: Result<ureq::Response, ureq::Error>) -> Result<
             Err(format!("HTTP {status}: {}", trim_for_report(&body)))
         }
         Err(error) => Err(format!("request failed: {error}")),
-    }
-}
-
-fn sanitize_node_handle(name: &str) -> String {
-    let mut out = String::new();
-    let mut last_dash = false;
-    for ch in name.chars().flat_map(char::to_lowercase) {
-        if ch.is_ascii_alphanumeric() {
-            out.push(ch);
-            last_dash = false;
-        } else if !last_dash {
-            out.push('-');
-            last_dash = true;
-        }
-    }
-    let trimmed = out.trim_matches('-');
-    if trimmed.is_empty() {
-        "d3-kramer-node".to_owned()
-    } else {
-        trimmed.chars().take(48).collect()
     }
 }
 
@@ -1455,14 +1322,18 @@ fn percent_encode_component(input: &str) -> String {
     out
 }
 
-fn estimate_tokens(text: &str) -> i64 {
-    ((text.chars().count() as i64) / 4).max(1)
+fn default_settlement_api_url() -> String {
+    let endpoint = env::var("WIRE_MAINNET_ENDPOINT")
+        .unwrap_or_else(|_| "https://newsbleach.com/api/v1".to_owned());
+    settlement_api_url_for_endpoint(endpoint.trim_end_matches('/'))
 }
 
-fn now_rfc3339() -> String {
-    OffsetDateTime::now_utc()
-        .format(&Rfc3339)
-        .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_owned())
+fn settlement_api_url_for_endpoint(endpoint: &str) -> String {
+    format!("{}/wire/settlements", endpoint.trim_end_matches('/'))
+}
+
+fn estimate_tokens(text: &str) -> i64 {
+    ((text.chars().count() as i64) / 4).max(1)
 }
 
 fn trim_for_report(input: &str) -> String {
@@ -1503,14 +1374,6 @@ mod tests {
         assert_eq!(
             percent_encode_component("playful/123/45"),
             "playful%2F123%2F45"
-        );
-    }
-
-    #[test]
-    fn node_handle_sanitizer_keeps_stable_ascii_shape() {
-        assert_eq!(
-            sanitize_node_handle("D3 Kramer Provider 123"),
-            "d3-kramer-provider-123"
         );
     }
 
@@ -1569,5 +1432,72 @@ mod tests {
         assert_eq!(first, second);
         assert!(first >= Duration::from_millis(500));
         assert!(first <= Duration::from_millis(600));
+    }
+
+    #[test]
+    fn settlement_api_url_uses_canonical_wire_route() {
+        assert_eq!(
+            settlement_api_url_for_endpoint("https://newsbleach.com/api/v1/"),
+            "https://newsbleach.com/api/v1/wire/settlements"
+        );
+
+        let report = D3LiveComputeSettlementReport::failed_config();
+        assert!(report
+            .settlement_api_url
+            .ends_with("/api/v1/wire/settlements"));
+    }
+
+    #[test]
+    fn read_settlement_uses_canonical_api_with_agent_bearer() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind test server");
+        let port = listener.local_addr().expect("local addr").port();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept request");
+            let mut buf = [0_u8; 4096];
+            let read = stream.read(&mut buf).expect("read request");
+            let request = String::from_utf8_lossy(&buf[..read]);
+            assert!(request.starts_with(
+                "GET /api/v1/wire/settlements?job_id=22222222-2222-4222-8222-222222222222 HTTP/1.1"
+            ));
+            assert!(request.contains("Authorization: Bearer test-agent-token"));
+            assert!(!request.to_ascii_lowercase().contains("apikey:"));
+
+            let body = json!({
+                "settlement": {
+                    "settlement_id": "11111111-1111-4111-8111-111111111111",
+                    "job_id": "22222222-2222-4222-8222-222222222222",
+                    "settlement_status": "settled",
+                    "actual_cost": 42,
+                    "provider_payout": 40,
+                    "requester_adjustment": 58
+                }
+            })
+            .to_string();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream
+                .write_all(response.as_bytes())
+                .expect("write response");
+        });
+
+        let settlement = read_settlement(
+            &format!("http://127.0.0.1:{port}/api/v1/wire/settlements"),
+            "22222222-2222-4222-8222-222222222222",
+            "test-agent-token",
+        )
+        .expect("settlement read");
+
+        assert_eq!(
+            settlement.get("settlement_status").and_then(Value::as_str),
+            Some("settled")
+        );
+        assert_eq!(
+            settlement.get("actual_cost").and_then(Value::as_i64),
+            Some(42)
+        );
+        server.join().expect("server thread joins");
     }
 }

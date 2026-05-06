@@ -97,12 +97,10 @@ agent-wire-substrate-node l6-stability-driver
 ```
 
 Current live validation inputs are read from environment only. D3/L6 settlement
-verification still uses the service-role read surface until addendum B lands,
-but live LLM calls default to local LM Studio and cloudflared is resolved by the
-transport crate:
+verification uses the canonical Wire settlement API with the persisted agent
+credential, live LLM calls default to local LM Studio, and cloudflared is
+resolved by the transport crate:
 
-- `SUPABASE_SERVICE_ROLE_KEY` for D3/L6 settlement verification.
-- `NEXT_PUBLIC_SUPABASE_URL` or `SUPABASE_URL` for the settlement backend.
 - `LAYER5_PROVIDER` or `D3_LLM_PROVIDER` to select `lm_studio` or `openrouter`.
 - `LM_STUDIO_BASE_URL`, `LM_STUDIO_MODEL`, `D3_MODEL`, or `LAYER5_MODEL` to
   override the local LM Studio defaults.
@@ -157,7 +155,7 @@ Then run the live integration evidence requested by Partner/Jerry:
 - mainnet auth bootstrap and restart reuse;
 - canonical chain compile/quote/execute;
 - live compute settlement through D3;
-- settlement read-back from `wire_settlements`;
+- settlement read-back from the canonical Wire settlement API;
 - final Newman/Elaine audit;
 - clean-machine cloudflared proof.
 
