@@ -12,11 +12,14 @@ use agent_wire_foundation::{
 };
 use agent_wire_substrate::{compose_substrate_node, NodeConfig, NodeRuntime};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
 const DEFAULT_OPENROUTER_BASE_URL: &str = "https://openrouter.ai/api/v1";
 const DEFAULT_OPENROUTER_MODEL: &str = "inception/mercury-2";
+const DEFAULT_LM_STUDIO_BASE_URL: &str = "http://127.0.0.1:1234/v1";
+const DEFAULT_LM_STUDIO_MODEL: &str = "granite-4-micro";
 const LAYER5_MAX_TOKENS: u32 = 160;
 const LAYER5_SENTINEL: &str = "SUBSTRATE_ROUNDTRIP_OK";
 const LAYER5_PROMPT: &str = "Return exactly the token SUBSTRATE_ROUNDTRIP_OK and nothing else.";
@@ -80,9 +83,10 @@ impl Layer5LiveLlmReport {
         Self {
             name: "wave-2-layer-5-live-llm-compute-roundtrip".to_owned(),
             provider: "unresolved".to_owned(),
-            model_id: env::var("OPENROUTER_MODEL")
-                .or_else(|_| env::var("LAYER5_MODEL"))
-                .unwrap_or_else(|_| DEFAULT_OPENROUTER_MODEL.to_owned()),
+            model_id: env::var("LAYER5_MODEL")
+                .or_else(|_| env::var("LM_STUDIO_MODEL"))
+                .or_else(|_| env::var("OPENROUTER_MODEL"))
+                .unwrap_or_else(|_| DEFAULT_LM_STUDIO_MODEL.to_owned()),
             live_provider: true,
             subtests: vec![Layer5Subtest {
                 name: "provider-config-resolves-live-llm".to_owned(),
@@ -96,8 +100,8 @@ impl Layer5LiveLlmReport {
     fn failed_bootstrap(reason: String) -> Self {
         Self {
             name: "wave-2-layer-5-live-llm-compute-roundtrip".to_owned(),
-            provider: "openrouter".to_owned(),
-            model_id: DEFAULT_OPENROUTER_MODEL.to_owned(),
+            provider: "lm_studio".to_owned(),
+            model_id: DEFAULT_LM_STUDIO_MODEL.to_owned(),
             live_provider: true,
             subtests: vec![Layer5Subtest {
                 name: "substrate-node-bootstrap".to_owned(),
@@ -152,14 +156,37 @@ pub struct Layer5ProviderConfig {
 }
 
 impl Layer5ProviderConfig {
-    pub fn openrouter(model_id: impl Into<String>, base_url: impl Into<String>) -> Self {
+    pub fn openai_compatible(
+        provider: impl Into<String>,
+        model_id: impl Into<String>,
+        base_url: impl Into<String>,
+        adapter_id: impl Into<String>,
+    ) -> Self {
         Self {
-            provider: "openrouter".to_owned(),
+            provider: provider.into(),
             model_id: model_id.into(),
             base_url: base_url.into(),
-            adapter_id: "openrouter-chat-completions".to_owned(),
+            adapter_id: adapter_id.into(),
             live_provider: true,
         }
+    }
+
+    pub fn openrouter(model_id: impl Into<String>, base_url: impl Into<String>) -> Self {
+        Self::openai_compatible(
+            "openrouter",
+            model_id,
+            base_url,
+            "openrouter-chat-completions",
+        )
+    }
+
+    pub fn lm_studio(model_id: impl Into<String>, base_url: impl Into<String>) -> Self {
+        Self::openai_compatible(
+            "lm_studio",
+            model_id,
+            base_url,
+            "lm-studio-chat-completions",
+        )
     }
 
     pub fn fixture(model_id: impl Into<String>) -> Self {
@@ -182,7 +209,7 @@ pub struct Layer5Completion {
 }
 
 pub fn run_layer5_live_llm_compute_roundtrip() -> Layer5LiveLlmReport {
-    let (provider, adapter) = match OpenRouterExecutionAdapter::from_env() {
+    let (provider, adapter) = match ChatCompletionsExecutionAdapter::from_layer5_env() {
         Ok(resolved) => resolved,
         Err(reason) => return Layer5LiveLlmReport::failed_provider_config(reason),
     };
@@ -542,32 +569,168 @@ struct Layer5Settlement {
     intent: SettlementIntent,
 }
 
-#[derive(Debug, Clone)]
-struct OpenRouterExecutionAdapter {
-    api_key: String,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ChatCompletionsProviderConfig {
+    pub provider: String,
+    pub model_id: String,
     base_url: String,
+    api_key: Option<String>,
+    adapter_id: String,
+}
+
+impl ChatCompletionsProviderConfig {
+    pub(crate) fn from_layer5_env() -> Result<Self, String> {
+        Self::from_env(
+            &["LAYER5_PROVIDER", "AGENT_WIRE_LLM_PROVIDER"],
+            &["LAYER5_MODEL", "LM_STUDIO_MODEL"],
+        )
+    }
+
+    pub(crate) fn from_d3_env() -> Result<Self, String> {
+        Self::from_env(
+            &["D3_LLM_PROVIDER", "AGENT_WIRE_LLM_PROVIDER"],
+            &["D3_MODEL", "LM_STUDIO_MODEL", "LAYER5_MODEL"],
+        )
+    }
+
+    fn from_env(provider_envs: &[&str], model_envs: &[&str]) -> Result<Self, String> {
+        let provider = first_env(provider_envs)
+            .map(normalize_provider_name)
+            .unwrap_or_else(|| {
+                if non_empty_env("OPENROUTER_API_KEY").is_some() {
+                    "openrouter".to_owned()
+                } else {
+                    "lm_studio".to_owned()
+                }
+            });
+
+        match provider.as_str() {
+            "openrouter" => {
+                let api_key = non_empty_env("OPENROUTER_API_KEY").ok_or_else(|| {
+                    "OPENROUTER_API_KEY is required when provider=openrouter".to_owned()
+                })?;
+                let base_url = non_empty_env("OPENROUTER_BASE_URL")
+                    .unwrap_or_else(|| DEFAULT_OPENROUTER_BASE_URL.to_owned());
+                let model_id = first_env(model_envs)
+                    .or_else(|| non_empty_env("OPENROUTER_MODEL"))
+                    .unwrap_or_else(|| DEFAULT_OPENROUTER_MODEL.to_owned());
+                Ok(Self {
+                    provider,
+                    model_id,
+                    base_url,
+                    api_key: Some(api_key),
+                    adapter_id: "openrouter-chat-completions".to_owned(),
+                })
+            }
+            "lm_studio" => {
+                let base_url = non_empty_env("LM_STUDIO_BASE_URL")
+                    .unwrap_or_else(|| DEFAULT_LM_STUDIO_BASE_URL.to_owned());
+                let model_id =
+                    first_env(model_envs).unwrap_or_else(|| DEFAULT_LM_STUDIO_MODEL.to_owned());
+                Ok(Self {
+                    provider,
+                    model_id,
+                    base_url,
+                    api_key: None,
+                    adapter_id: "lm-studio-chat-completions".to_owned(),
+                })
+            }
+            other => Err(format!(
+                "unsupported live LLM provider `{other}`; expected `lm_studio` or `openrouter`"
+            )),
+        }
+    }
+
+    pub(crate) fn to_layer5_provider_config(&self) -> Layer5ProviderConfig {
+        Layer5ProviderConfig::openai_compatible(
+            self.provider.clone(),
+            self.model_id.clone(),
+            self.base_url.clone(),
+            self.adapter_id.clone(),
+        )
+    }
+
+    pub(crate) fn with_model_id(mut self, model_id: impl Into<String>) -> Self {
+        self.model_id = model_id.into();
+        self
+    }
+
+    pub(crate) fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
+    pub(crate) fn adapter_id(&self) -> &str {
+        &self.adapter_id
+    }
+
+    pub(crate) fn chat_completion(
+        &self,
+        messages: Value,
+        max_tokens: u64,
+        temperature: f64,
+        report_title: &str,
+    ) -> Result<(String, Option<String>), String> {
+        let endpoint = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
+        let payload = serde_json::json!({
+            "model": self.model_id,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature
+        });
+        let mut request = ureq::post(&endpoint).set("Content-Type", "application/json");
+        if let Some(api_key) = &self.api_key {
+            request = request.set("Authorization", &format!("Bearer {api_key}"));
+        }
+        if self.provider == "openrouter" {
+            request = request
+                .set("HTTP-Referer", "https://agent-wire-substrate.local")
+                .set("X-Title", report_title);
+        }
+        let response = request.send_json(payload);
+
+        let response = match response {
+            Ok(response) => response,
+            Err(ureq::Error::Status(status, response)) => {
+                let body = response.into_string().unwrap_or_default();
+                return Err(format!(
+                    "{} returned HTTP {status}: {}",
+                    self.provider,
+                    trim_for_report(&body)
+                ));
+            }
+            Err(error) => return Err(format!("{} request failed: {error}", self.provider)),
+        };
+        let request_id = response.header("x-request-id").map(ToOwned::to_owned);
+        let body: Value = response
+            .into_json()
+            .map_err(|error| format!("{} response was not valid JSON: {error}", self.provider))?;
+        let first_choice = body
+            .get("choices")
+            .and_then(Value::as_array)
+            .and_then(|choices| choices.first())
+            .ok_or_else(|| format!("{} response did not include choices[0]", self.provider))?;
+        let content = first_choice
+            .get("message")
+            .and_then(|message| message.get("content"))
+            .and_then(Value::as_str)
+            .ok_or_else(|| missing_content_reason(&self.provider, first_choice))?;
+        Ok((content.to_owned(), request_id))
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ChatCompletionsExecutionAdapter {
+    provider: ChatCompletionsProviderConfig,
     prompt: String,
 }
 
-impl OpenRouterExecutionAdapter {
-    fn from_env() -> Result<(Layer5ProviderConfig, Self), String> {
-        let api_key = env::var("OPENROUTER_API_KEY")
-            .map_err(|_| "OPENROUTER_API_KEY is not set in the process environment".to_owned())?;
-        if api_key.trim().is_empty() {
-            return Err("OPENROUTER_API_KEY is present but empty".to_owned());
-        }
-
-        let base_url = env::var("OPENROUTER_BASE_URL")
-            .unwrap_or_else(|_| DEFAULT_OPENROUTER_BASE_URL.to_owned());
-        let model_id = env::var("OPENROUTER_MODEL")
-            .or_else(|_| env::var("LAYER5_MODEL"))
-            .unwrap_or_else(|_| DEFAULT_OPENROUTER_MODEL.to_owned());
-        let provider = Layer5ProviderConfig::openrouter(model_id.clone(), base_url.clone());
+impl ChatCompletionsExecutionAdapter {
+    fn from_layer5_env() -> Result<(Layer5ProviderConfig, Self), String> {
+        let provider = ChatCompletionsProviderConfig::from_layer5_env()?;
         Ok((
-            provider,
+            provider.to_layer5_provider_config(),
             Self {
-                api_key,
-                base_url,
+                provider,
                 prompt: LAYER5_PROMPT.to_owned(),
             },
         ))
@@ -577,10 +740,8 @@ impl OpenRouterExecutionAdapter {
         &self,
         job: &ComputeJobEnvelope,
     ) -> Result<(String, Option<String>), String> {
-        let endpoint = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
-        let payload = serde_json::json!({
-            "model": job.invocation.model_id,
-            "messages": [
+        self.provider.chat_completion(
+            serde_json::json!([
                 {
                     "role": "system",
                     "content": "You are validating an agent-wire compute-market roundtrip. Follow the user instruction exactly."
@@ -589,48 +750,15 @@ impl OpenRouterExecutionAdapter {
                     "role": "user",
                     "content": self.prompt
                 }
-            ],
-            "max_tokens": job.invocation.max_tokens.unwrap_or(LAYER5_MAX_TOKENS),
-            "temperature": f64::from(job.invocation.temperature_milli.unwrap_or(0)) / 1000.0
-        });
-        let auth_header = format!("Bearer {}", self.api_key);
-        let response = ureq::post(&endpoint)
-            .set("Authorization", &auth_header)
-            .set("Content-Type", "application/json")
-            .set("HTTP-Referer", "https://agent-wire-substrate.local/layer5")
-            .set("X-Title", "agent-wire-substrate layer5 validation")
-            .send_json(payload);
-
-        let response = match response {
-            Ok(response) => response,
-            Err(ureq::Error::Status(status, response)) => {
-                let body = response.into_string().unwrap_or_default();
-                return Err(format!(
-                    "OpenRouter returned HTTP {status}: {}",
-                    trim_for_report(&body)
-                ));
-            }
-            Err(error) => return Err(format!("OpenRouter request failed: {error}")),
-        };
-        let request_id = response.header("x-request-id").map(ToOwned::to_owned);
-        let body: serde_json::Value = response
-            .into_json()
-            .map_err(|error| format!("OpenRouter response was not valid JSON: {error}"))?;
-        let first_choice = body
-            .get("choices")
-            .and_then(|choices| choices.as_array())
-            .and_then(|choices| choices.first())
-            .ok_or_else(|| "OpenRouter response did not include choices[0]".to_owned())?;
-        let content = first_choice
-            .get("message")
-            .and_then(|message| message.get("content"))
-            .and_then(|content| content.as_str())
-            .ok_or_else(|| missing_content_reason(first_choice))?;
-        Ok((content.to_owned(), request_id))
+            ]),
+            u64::from(job.invocation.max_tokens.unwrap_or(LAYER5_MAX_TOKENS)),
+            f64::from(job.invocation.temperature_milli.unwrap_or(0)) / 1000.0,
+            "agent-wire-substrate layer5 validation",
+        )
     }
 }
 
-impl ExecutionAdapter for OpenRouterExecutionAdapter {
+impl ExecutionAdapter for ChatCompletionsExecutionAdapter {
     type Error = String;
     type Output = Layer5Completion;
 
@@ -729,7 +857,26 @@ fn trim_for_report(value: &str) -> String {
     }
 }
 
-fn missing_content_reason(choice: &serde_json::Value) -> String {
+fn first_env(names: &[&str]) -> Option<String> {
+    names.iter().find_map(|name| non_empty_env(name))
+}
+
+fn non_empty_env(name: &str) -> Option<String> {
+    env::var(name)
+        .ok()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+}
+
+fn normalize_provider_name(raw: String) -> String {
+    match raw.trim().to_ascii_lowercase().replace('-', "_").as_str() {
+        "lmstudio" | "lm_studio" => "lm_studio".to_owned(),
+        "openrouter" => "openrouter".to_owned(),
+        other => other.to_owned(),
+    }
+}
+
+fn missing_content_reason(provider: &str, choice: &Value) -> String {
     let finish_reason = choice
         .get("finish_reason")
         .and_then(|value| value.as_str())
@@ -744,7 +891,7 @@ fn missing_content_reason(choice: &serde_json::Value) -> String {
         })
         .unwrap_or_else(|| "none".to_owned());
     format!(
-        "OpenRouter response did not include text content (finish_reason={finish_reason}, message_keys={message_keys})"
+        "{provider} response did not include text content (finish_reason={finish_reason}, message_keys={message_keys})"
     )
 }
 

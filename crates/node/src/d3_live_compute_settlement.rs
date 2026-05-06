@@ -10,16 +10,18 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use agent_wire_transport_cloudflare::ensure_cloudflared_binary;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+use crate::layer5_live_llm::ChatCompletionsProviderConfig;
 use crate::mainnet_auth::load_persisted_mainnet_credential;
+use crate::v1_runtime::default_state_dir;
 
-const DEFAULT_OPENROUTER_BASE_URL: &str = "https://openrouter.ai/api/v1";
-const DEFAULT_OPENROUTER_MODEL: &str = "inception/mercury-2";
+const DEFAULT_D3_MODEL: &str = "granite-4-micro";
 const DEFAULT_SUPABASE_URL: &str = "https://supabase.newsbleach.com";
 const D3_PROMPT: &str = "Return exactly this sentence: D3 live compute settlement green.";
 const DEFAULT_FILL_RETRY_TIMEOUT_SECS: u64 = 180;
@@ -172,10 +174,9 @@ struct D3Config {
     endpoint: String,
     supabase_url: String,
     service_role_key: String,
-    openrouter_api_key: String,
-    openrouter_base_url: String,
+    llm_provider: ChatCompletionsProviderConfig,
     model_id: String,
-    cloudflared_path: Option<PathBuf>,
+    cloudflared_path: PathBuf,
     max_tokens: u32,
     max_budget: i64,
     tunnel_health_timeout_secs: u64,
@@ -280,11 +281,18 @@ fn run_d3_live_compute_settlement_inner(
         requester_adjustment: None,
         subtests: vec![passed_step(
             "d3-config-resolves",
-            "all live endpoints and env-only credentials needed for D3 are present",
+            "all live endpoints, settlement read credentials, LLM provider config, and cloudflared binary are present",
             vec![
                 format!("endpoint {}", config.endpoint),
                 format!("supabase {}", config.supabase_url),
+                format!(
+                    "llm provider {} via {} at {}",
+                    config.llm_provider.provider,
+                    config.llm_provider.adapter_id(),
+                    config.llm_provider.base_url()
+                ),
                 format!("model {}", config.model_id),
+                format!("cloudflared {}", config.cloudflared_path.display()),
             ],
         )],
     };
@@ -479,9 +487,10 @@ impl D3LiveComputeSettlementReport {
                 .or_else(|_| env::var("SUPABASE_URL"))
                 .unwrap_or_else(|_| DEFAULT_SUPABASE_URL.to_owned()),
             model_id: env::var("D3_MODEL")
-                .or_else(|_| env::var("OPENROUTER_MODEL"))
+                .or_else(|_| env::var("LM_STUDIO_MODEL"))
                 .or_else(|_| env::var("LAYER5_MODEL"))
-                .unwrap_or_else(|_| DEFAULT_OPENROUTER_MODEL.to_owned()),
+                .or_else(|_| env::var("OPENROUTER_MODEL"))
+                .unwrap_or_else(|_| DEFAULT_D3_MODEL.to_owned()),
             provider_node_id: None,
             requester_node_id: None,
             tunnel_url: None,
@@ -514,18 +523,11 @@ impl D3Config {
         if service_role_key.trim().is_empty() {
             return Err("SUPABASE_SERVICE_ROLE_KEY is present but empty".to_owned());
         }
-        let openrouter_api_key = env::var("OPENROUTER_API_KEY")
-            .map_err(|_| "OPENROUTER_API_KEY is not set".to_owned())?;
-        if openrouter_api_key.trim().is_empty() {
-            return Err("OPENROUTER_API_KEY is present but empty".to_owned());
-        }
-        let openrouter_base_url = env::var("OPENROUTER_BASE_URL")
-            .unwrap_or_else(|_| DEFAULT_OPENROUTER_BASE_URL.to_owned());
-        let model_id = env::var("D3_MODEL")
-            .or_else(|_| env::var("OPENROUTER_MODEL"))
-            .or_else(|_| env::var("LAYER5_MODEL"))
-            .unwrap_or_else(|_| DEFAULT_OPENROUTER_MODEL.to_owned());
-        let cloudflared_path = resolve_cloudflared_path();
+        let llm_provider = ChatCompletionsProviderConfig::from_d3_env()?;
+        let model_id = llm_provider.model_id.clone();
+        let state_dir = default_state_dir();
+        let cloudflared_path = ensure_cloudflared_binary(&state_dir)
+            .map_err(|error| format!("cloudflared resolver failed: {error}"))?;
         let max_tokens = env::var("D3_MAX_TOKENS")
             .ok()
             .and_then(|raw| raw.parse::<u32>().ok())
@@ -544,8 +546,7 @@ impl D3Config {
             endpoint,
             supabase_url,
             service_role_key,
-            openrouter_api_key,
-            openrouter_base_url,
+            llm_provider,
             model_id,
             cloudflared_path,
             max_tokens,
@@ -746,10 +747,7 @@ fn provision_tunnel(
 }
 
 fn start_cloudflared(config: &D3Config, tunnel: &TunnelInfo) -> Result<CloudflaredChild, String> {
-    let path = config.cloudflared_path.as_ref().ok_or_else(|| {
-        "cloudflared not found. Set D3_CLOUDFLARED_PATH or install/download cloudflared.".to_owned()
-    })?;
-    let child = Command::new(path)
+    let child = Command::new(&config.cloudflared_path)
         .arg("--no-autoupdate")
         .arg("tunnel")
         .arg("run")
@@ -1183,7 +1181,7 @@ fn execute_dispatch(
         .and_then(Value::as_f64)
         .unwrap_or(0.0);
 
-    let completion = openrouter_chat(&config, &model_id, messages, max_tokens, temperature)?;
+    let completion = chat_completion(&config, &model_id, messages, max_tokens, temperature)?;
     if let Ok(mut guard) = state.lock() {
         guard.provider_request_id = completion.provider_request_id.clone();
     }
@@ -1231,62 +1229,27 @@ fn execute_dispatch(
 }
 
 #[derive(Debug)]
-struct OpenRouterCompletion {
+struct ChatCompletion {
     text: String,
     provider_request_id: Option<String>,
 }
 
-fn openrouter_chat(
+fn chat_completion(
     config: &D3Config,
     model_id: &str,
     messages: Value,
     max_tokens: u64,
     temperature: f64,
-) -> Result<OpenRouterCompletion, String> {
-    let endpoint = format!(
-        "{}/chat/completions",
-        config.openrouter_base_url.trim_end_matches('/')
-    );
-    let payload = json!({
-        "model": model_id,
-        "messages": messages,
-        "max_tokens": max_tokens,
-        "temperature": temperature
-    });
-    let auth_header = format!("Bearer {}", config.openrouter_api_key);
-    let response = ureq::post(&endpoint)
-        .set("Authorization", &auth_header)
-        .set("Content-Type", "application/json")
-        .set("HTTP-Referer", "https://agent-wire-substrate.local/d3")
-        .set("X-Title", "agent-wire-substrate D3 validation")
-        .send_json(payload);
-    let response = match response {
-        Ok(response) => response,
-        Err(ureq::Error::Status(status, response)) => {
-            let body = response.into_string().unwrap_or_default();
-            return Err(format!(
-                "OpenRouter returned HTTP {status}: {}",
-                trim_for_report(&body)
-            ));
-        }
-        Err(error) => return Err(format!("OpenRouter request failed: {error}")),
-    };
-    let provider_request_id = response.header("x-request-id").map(ToOwned::to_owned);
-    let body: Value = response
-        .into_json()
-        .map_err(|error| format!("OpenRouter response was not valid JSON: {error}"))?;
-    let first_choice = body
-        .get("choices")
-        .and_then(Value::as_array)
-        .and_then(|choices| choices.first())
-        .ok_or_else(|| "OpenRouter response did not include choices[0]".to_owned())?;
-    let content = first_choice
-        .get("message")
-        .and_then(|message| message.get("content"))
-        .and_then(Value::as_str)
-        .ok_or_else(|| format!("OpenRouter choices[0] missing message.content: {first_choice}"))?;
-    Ok(OpenRouterCompletion {
-        text: content.to_owned(),
+) -> Result<ChatCompletion, String> {
+    let provider = config.llm_provider.clone().with_model_id(model_id);
+    let (text, provider_request_id) = provider.chat_completion(
+        messages,
+        max_tokens,
+        temperature,
+        "agent-wire-substrate D3 validation",
+    )?;
+    Ok(ChatCompletion {
+        text,
         provider_request_id,
     })
 }
@@ -1456,22 +1419,6 @@ fn parse_ureq_response(response: Result<ureq::Response, ureq::Error>) -> Result<
         }
         Err(error) => Err(format!("request failed: {error}")),
     }
-}
-
-fn resolve_cloudflared_path() -> Option<PathBuf> {
-    if let Ok(path) = env::var("D3_CLOUDFLARED_PATH") {
-        if !path.trim().is_empty() {
-            return Some(PathBuf::from(path));
-        }
-    }
-    let path_var = env::var_os("PATH")?;
-    for path in env::split_paths(&path_var) {
-        let candidate = path.join("cloudflared");
-        if candidate.is_file() {
-            return Some(candidate);
-        }
-    }
-    None
 }
 
 fn sanitize_node_handle(name: &str) -> String {

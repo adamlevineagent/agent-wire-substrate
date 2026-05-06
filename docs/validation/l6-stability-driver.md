@@ -27,11 +27,15 @@ five kill-points.
 
 The script accepts `L6_ENV_FILE=/path/to/.env` and sources it before invoking the CLI. It passes through the D3-required variables:
 
-- `OPENROUTER_API_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `NEXT_PUBLIC_SUPABASE_URL` or `SUPABASE_URL`
-- `D3_CLOUDFLARED_PATH` when `cloudflared` is not on `PATH`
+- D3 live LLM provider controls documented in `docs/validation/d3-live-compute-settlement.md`
 - D3 fill retry controls documented in `docs/validation/d3-live-compute-settlement.md`
+
+By default, L6 inherits D3's local LM Studio provider
+(`http://127.0.0.1:1234/v1`, `granite-4-micro`) and the transport crate's
+bundled/downloaded cloudflared resolution. It does not require
+`OPENROUTER_API_KEY` or a cloudflared path environment override.
 
 L6-specific controls:
 

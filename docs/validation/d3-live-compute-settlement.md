@@ -7,18 +7,32 @@ D3 is the first full live substrate-to-mainnet compute settlement gate. It keeps
 - Reuse the persisted `agent-wire-substrate-node` mainnet Wire credential.
 - Register separate provider and requester node rows for the Kramer agent.
 - Provision and run a Cloudflare tunnel to a local substrate provider endpoint.
-- Publish a real compute offer and queue mirror for `inception/mercury-2`.
+- Publish a real compute offer and queue mirror for the configured live model.
 - Quote, purchase, fill, and dispatch a small real-money compute job.
-- Execute one live OpenRouter inference and post Wire settlement metadata.
+- Execute one live OpenAI-compatible inference and post Wire settlement metadata.
 - Verify the job reaches completed/settled and `wire_settlements` exposes the row.
 
-The script accepts `D3_ENV_FILE=/path/to/.env` and sources it before invoking the CLI. Required secrets are read from environment only:
+The script accepts `D3_ENV_FILE=/path/to/.env` and sources it before invoking
+the CLI. D3 defaults to local LM Studio at `http://127.0.0.1:1234/v1` with
+`granite-4-micro`, so the live LLM path no longer requires an OpenRouter key.
+Required settlement/mainnet inputs are read from environment only:
 
-- `OPENROUTER_API_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `NEXT_PUBLIC_SUPABASE_URL` or `SUPABASE_URL`
-- `D3_CLOUDFLARED_PATH` when `cloudflared` is not on `PATH`
 - `D3_TUNNEL_HEALTH_TIMEOUT_SECS` to override the 120-second DNS/tunnel health window
+
+Optional provider controls:
+
+- `D3_LLM_PROVIDER=lm_studio` or `D3_LLM_PROVIDER=openrouter`
+- `LM_STUDIO_BASE_URL`
+- `D3_MODEL`, `LM_STUDIO_MODEL`, or `LAYER5_MODEL`
+- `OPENROUTER_API_KEY` only when `D3_LLM_PROVIDER=openrouter`
+- `OPENROUTER_MODEL` and `OPENROUTER_BASE_URL` for OpenRouter overrides
+
+Cloudflared is resolved by the transport crate from a bundled build artifact,
+the node resource directory, the node data directory, `PATH`, or a fresh
+platform download. D3 does not accept or require a cloudflared path environment
+override.
 
 D3 treats `/compute/fill` dispatch as a live tunnel propagation seam. Transient
 `provider_unreachable`, `http_530`, and 502/503/504 fill failures are retried

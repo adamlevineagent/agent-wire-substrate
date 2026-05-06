@@ -10,11 +10,14 @@ Layer 5 is the first non-synthetic substrate validation gate. It keeps the Layer
 - `ChronicleSink` records the delivery receipt.
 - Requester reads the completion and settles credits within the job budget.
 
-The default provider is OpenRouter with `inception/mercury-2`. Override with:
+The default provider is a local LM Studio OpenAI-compatible server at
+`http://127.0.0.1:1234/v1` with `granite-4-micro`. Override with:
 
-- `OPENROUTER_API_KEY`
-- `OPENROUTER_MODEL`
-- `OPENROUTER_BASE_URL`
+- `LAYER5_PROVIDER=lm_studio` or `LAYER5_PROVIDER=openrouter`
+- `LM_STUDIO_BASE_URL`
+- `LM_STUDIO_MODEL` or `LAYER5_MODEL`
+- `OPENROUTER_API_KEY` when `LAYER5_PROVIDER=openrouter`
+- `OPENROUTER_MODEL` and `OPENROUTER_BASE_URL` for OpenRouter overrides
 
 The script also accepts `LAYER5_ENV_FILE=/path/to/.env` and sources it before invoking the node CLI. Secrets are never committed or hardcoded.
 
@@ -42,7 +45,9 @@ All five sub-tests must pass:
 
 The live adapter prompts the model to return `SUBSTRATE_ROUNDTRIP_OK`. The content sanity check accepts the response only if that sentinel is present.
 
-The default cap is 160 output tokens because `inception/mercury-2` may spend a small reasoning budget before emitting final text. Lower caps can produce a provider response with `content: null` even when the request itself succeeds.
+The default cap is 160 output tokens. Lower caps can produce provider responses
+without usable text on reasoning-oriented backends even when the request itself
+succeeds.
 
 ## Non-Live Test Behavior
 

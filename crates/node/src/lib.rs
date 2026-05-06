@@ -157,22 +157,19 @@ mod tests {
     }
 
     #[test]
-    fn layer5_live_llm_validation_fails_closed_without_provider_config() {
-        if std::env::var("OPENROUTER_API_KEY").is_ok() {
-            return;
-        }
+    fn layer5_live_llm_provider_config_supports_lm_studio() {
+        let provider =
+            Layer5ProviderConfig::lm_studio("granite-4-micro", "http://127.0.0.1:1234/v1");
 
-        let report = run_layer5_live_llm_compute_roundtrip();
-
-        assert!(!report.all_green());
-        assert_eq!(report.subtests[0].name, "provider-config-resolves-live-llm");
+        assert_eq!(provider.provider, "lm_studio");
+        assert_eq!(provider.model_id, "granite-4-micro");
+        assert_eq!(provider.base_url, "http://127.0.0.1:1234/v1");
+        assert_eq!(provider.adapter_id, "lm-studio-chat-completions");
     }
 
     #[test]
-    fn d3_live_validation_fails_closed_without_provider_config() {
-        if std::env::var("OPENROUTER_API_KEY").is_ok()
-            && std::env::var("SUPABASE_SERVICE_ROLE_KEY").is_ok()
-        {
+    fn d3_live_validation_fails_closed_without_settlement_read_config() {
+        if std::env::var("SUPABASE_SERVICE_ROLE_KEY").is_ok() {
             return;
         }
 

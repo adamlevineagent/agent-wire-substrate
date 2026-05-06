@@ -8,8 +8,9 @@ Shipped in `agent-wire-transport-cloudflare`:
 
 - Persistent `TunnelState` with tolerant `tunnel_url` deserialization, preserving
   `tunnel_id` and `tunnel_token` when a saved URL is malformed.
-- Cloudflared binary path selection, install detection, platform-specific
-  download URL selection, and download/extract helper.
+- Cloudflared binary path selection, build-time bundle discovery,
+  node-resource/data-dir/PATH fallback, platform-specific download URL
+  selection, and download/extract helper.
 - Server-side tunnel provisioning via `POST /api/v1/node/tunnel`.
 - Wire-native `tunnel_state/<node-id>.md` load/save helpers with legacy JSON
   read fallback.
@@ -17,7 +18,7 @@ Shipped in `agent-wire-transport-cloudflare`:
   `https://node-{nodeId}.agent-wire.com` URL pattern.
 - Resolver that reuses valid persisted tokens or provisions and persists a new
   tunnel state.
-- Cloudflared child-process spawn, pre-spawn orphan cleanup, and stderr
+- Cloudflared child-process spawn through the resolver, pre-spawn orphan cleanup, and stderr
   classifier for connected/error markers.
 - `CloudflareTunnelDriver::from_state` so existing `TransportDriver` consumers
   can open sessions from supervised state.

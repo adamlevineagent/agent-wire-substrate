@@ -96,15 +96,18 @@ agent-wire-substrate-node d3-live-compute-settlement
 agent-wire-substrate-node l6-stability-driver
 ```
 
-Current live validation secrets are read from environment only until addendum
-B/C/D lands:
+Current live validation inputs are read from environment only. D3/L6 settlement
+verification still uses the service-role read surface until addendum B lands,
+but live LLM calls default to local LM Studio and cloudflared is resolved by the
+transport crate:
 
-- `OPENROUTER_API_KEY` for live model calls.
-- `OPENROUTER_BASE_URL`, `OPENROUTER_MODEL`, or `LAYER5_MODEL` to override
-  provider defaults.
 - `SUPABASE_SERVICE_ROLE_KEY` for D3/L6 settlement verification.
 - `NEXT_PUBLIC_SUPABASE_URL` or `SUPABASE_URL` for the settlement backend.
-- `D3_CLOUDFLARED_PATH` when `cloudflared` is not on `PATH`.
+- `LAYER5_PROVIDER` or `D3_LLM_PROVIDER` to select `lm_studio` or `openrouter`.
+- `LM_STUDIO_BASE_URL`, `LM_STUDIO_MODEL`, `D3_MODEL`, or `LAYER5_MODEL` to
+  override the local LM Studio defaults.
+- `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL`, and `OPENROUTER_MODEL` only when
+  the selected provider is `openrouter`.
 
 Optional D3 controls:
 
@@ -124,13 +127,15 @@ instructs it.
 ## Cloudflared Gate
 
 `agent-wire-transport-cloudflare` contains the platform-aware cloudflared
-download and lifecycle primitives. D3 currently accepts `D3_CLOUDFLARED_PATH`
-or a `cloudflared` found on `PATH`.
+download and lifecycle primitives. Runtime resolution checks, in order, the
+compile-time bundled artifact emitted from
+`AGENT_WIRE_CLOUDFLARED_BUNDLE_SOURCE`, the node executable/resource
+directories, the node data directory, `PATH`, and then the platform download
+helper. D3 does not require a cloudflared path environment override.
 
-The V1 release gate is stricter than local D3 convenience: a clean-machine
-release proof must show that the node can acquire or bundle cloudflared without
-depending on a developer-local preinstall. Do not mark V1 ready for publish
-until that evidence exists.
+Set `AGENT_WIRE_CLOUDFLARED_BUNDLE_SOURCE=/absolute/path/to/cloudflared` at
+build time when producing a release bundle that should carry its own
+cloudflared binary.
 
 ## Release Gate
 

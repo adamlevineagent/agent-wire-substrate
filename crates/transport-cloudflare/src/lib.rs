@@ -1,3 +1,4 @@
+use std::env;
 use std::fmt;
 use std::fs;
 use std::io::{BufRead, BufReader, Read};
@@ -17,6 +18,7 @@ use serde::{Deserialize, Serialize};
 pub const TUNNEL_STATE_FILE: &str = "tunnel_state/tunnel.md";
 pub const LEGACY_TUNNEL_STATE_FILE: &str = "tunnel.json";
 pub const CLOUDFLARED_BINARY_NAME: &str = "cloudflared";
+const BUNDLED_CLOUDFLARED_PATH: Option<&str> = option_env!("AGENT_WIRE_BUNDLED_CLOUDFLARED_PATH");
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum CloudflareTunnelError {
@@ -199,17 +201,44 @@ impl TransportDriver for CloudflareTunnelDriver {
     }
 }
 
-pub fn cloudflared_binary_path(data_dir: &Path) -> PathBuf {
-    let binary_name = if cfg!(target_os = "windows") {
+pub fn cloudflared_binary_name() -> &'static str {
+    if cfg!(target_os = "windows") {
         "cloudflared.exe"
     } else {
         CLOUDFLARED_BINARY_NAME
-    };
-    data_dir.join("bin").join(binary_name)
+    }
+}
+
+pub fn cloudflared_binary_path(data_dir: &Path) -> PathBuf {
+    data_dir.join("bin").join(cloudflared_binary_name())
 }
 
 pub fn is_cloudflared_installed(data_dir: &Path) -> bool {
     cloudflared_binary_path(data_dir).exists()
+}
+
+pub fn bundled_cloudflared_binary_candidates() -> Vec<PathBuf> {
+    let current_exe = env::current_exe().ok();
+    bundled_cloudflared_binary_candidates_for(current_exe.as_deref(), BUNDLED_CLOUDFLARED_PATH)
+}
+
+pub fn bundled_cloudflared_binary_path() -> Option<PathBuf> {
+    bundled_cloudflared_binary_candidates()
+        .into_iter()
+        .find(|candidate| cloudflared_binary_is_runnable(candidate))
+}
+
+pub fn resolve_cloudflared_binary(data_dir: &Path) -> Option<PathBuf> {
+    bundled_cloudflared_binary_path()
+        .or_else(|| runnable_cloudflared_binary(&cloudflared_binary_path(data_dir)))
+        .or_else(path_cloudflared_binary)
+}
+
+pub fn ensure_cloudflared_binary(data_dir: &Path) -> Result<PathBuf, CloudflareTunnelError> {
+    if let Some(binary) = resolve_cloudflared_binary(data_dir) {
+        return Ok(binary);
+    }
+    download_cloudflared(data_dir)
 }
 
 pub fn cloudflared_download_url() -> Result<String, CloudflareTunnelError> {
@@ -286,7 +315,66 @@ pub fn download_cloudflared(data_dir: &Path) -> Result<PathBuf, CloudflareTunnel
     Ok(binary_path)
 }
 
-fn cloudflared_binary_is_runnable(binary_path: &Path) -> bool {
+fn bundled_cloudflared_binary_candidates_for(
+    current_exe: Option<&Path>,
+    compile_time_path: Option<&str>,
+) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(path) = compile_time_path.and_then(non_empty_path) {
+        candidates.push(path);
+    }
+    let Some(current_exe) = current_exe else {
+        return candidates;
+    };
+    let Some(exe_dir) = current_exe.parent() else {
+        return candidates;
+    };
+    let binary_name = cloudflared_binary_name();
+    candidates.push(exe_dir.join(binary_name));
+    candidates.push(exe_dir.join("bin").join(binary_name));
+    if exe_dir.file_name().and_then(|name| name.to_str()) == Some("MacOS") {
+        if let Some(contents_dir) = exe_dir.parent() {
+            candidates.push(
+                contents_dir
+                    .join("Resources")
+                    .join("cloudflared")
+                    .join(binary_name),
+            );
+            candidates.push(contents_dir.join("Resources").join(binary_name));
+        }
+    }
+    candidates
+}
+
+fn non_empty_path(raw: &str) -> Option<PathBuf> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(trimmed))
+    }
+}
+
+fn path_cloudflared_binary() -> Option<PathBuf> {
+    let path_var = env::var_os("PATH")?;
+    for path in env::split_paths(&path_var) {
+        let candidate = path.join(cloudflared_binary_name());
+        if let Some(runnable) = runnable_cloudflared_binary(&candidate) {
+            return Some(runnable);
+        }
+    }
+    None
+}
+
+fn runnable_cloudflared_binary(binary_path: &Path) -> Option<PathBuf> {
+    if cloudflared_binary_is_runnable(binary_path) {
+        Some(binary_path.to_path_buf())
+    } else {
+        None
+    }
+}
+
+pub fn cloudflared_binary_is_runnable(binary_path: &Path) -> bool {
     Command::new(binary_path)
         .arg("--version")
         .output()
@@ -451,12 +539,7 @@ pub fn start_tunnel(data_dir: &Path, tunnel_token: &str) -> Result<Child, Cloudf
     if tunnel_token.is_empty() {
         return Err(CloudflareTunnelError::MissingTunnelToken);
     }
-    let binary_path = cloudflared_binary_path(data_dir);
-    if !binary_path.exists() {
-        return Err(CloudflareTunnelError::Process(
-            "cloudflared binary not found; call download_cloudflared first".to_owned(),
-        ));
-    }
+    let binary_path = ensure_cloudflared_binary(data_dir)?;
 
     kill_orphan_cloudflared();
 
@@ -689,6 +772,24 @@ mod tests {
             cloudflared_download_url_for("plan9", "x86_64"),
             Err(CloudflareTunnelError::UnsupportedPlatform)
         );
+    }
+
+    #[test]
+    fn bundled_cloudflared_candidates_cover_compile_time_and_macos_resources() {
+        let exe =
+            Path::new("/Applications/Agent Wire.app/Contents/MacOS/agent-wire-substrate-node");
+        let candidates = bundled_cloudflared_binary_candidates_for(
+            Some(exe),
+            Some("/opt/agent-wire/cloudflared"),
+        );
+
+        assert_eq!(candidates[0], PathBuf::from("/opt/agent-wire/cloudflared"));
+        assert!(candidates.contains(&PathBuf::from(
+            "/Applications/Agent Wire.app/Contents/Resources/cloudflared/cloudflared"
+        )));
+        assert!(candidates.contains(&PathBuf::from(
+            "/Applications/Agent Wire.app/Contents/Resources/cloudflared"
+        )));
     }
 
     #[test]
