@@ -464,6 +464,7 @@ impl<C: Clock> WireNativeDocCodec<C> {
         document: &LocalStateDocument<T>,
     ) -> Result<String, LocalStateDocError> {
         document.frontmatter.validate()?;
+        enforce_secret_ref_payload_policy(document, cfg!(unix))?;
         let frontmatter = yaml_without_document_marker(&document.frontmatter)?;
         let payload = yaml_without_document_marker(&document.payload)?;
         Ok(format!(
@@ -503,6 +504,44 @@ impl<C: Clock> WireNativeDocCodec<C> {
             .as_ref()
             .join(kind.directory_name())
             .join(format!("{}.md", id.as_str()))
+    }
+}
+
+fn enforce_secret_ref_payload_policy<T: Serialize>(
+    document: &LocalStateDocument<T>,
+    supports_private_file: bool,
+) -> Result<(), LocalStateDocError> {
+    if supports_private_file
+        || document.frontmatter.record_kind.secret_policy() != SecretPolicy::SecretRefCapable
+    {
+        return Ok(());
+    }
+
+    let payload = serde_yaml::to_value(&document.payload)
+        .map_err(|error| LocalStateDocError::Yaml(error.to_string()))?;
+    if contains_inline_secret_material(&payload) {
+        return Err(LocalStateDocError::PrivateFileUnsupported);
+    }
+    Ok(())
+}
+
+fn contains_inline_secret_material(value: &serde_yaml::Value) -> bool {
+    match value {
+        serde_yaml::Value::Mapping(mapping) => {
+            let has_inline_kind = mapping.iter().any(|(key, value)| {
+                matches!(key, serde_yaml::Value::String(key) if key == "kind")
+                    && matches!(value, serde_yaml::Value::String(value) if value == "inline")
+            });
+            let has_secret_value = mapping
+                .keys()
+                .any(|key| matches!(key, serde_yaml::Value::String(key) if key == "value"));
+            (has_inline_kind && has_secret_value)
+                || mapping
+                    .values()
+                    .any(|value| contains_inline_secret_material(value))
+        }
+        serde_yaml::Value::Sequence(values) => values.iter().any(contains_inline_secret_material),
+        _ => false,
     }
 }
 
@@ -693,6 +732,11 @@ mod tests {
         description: String,
     }
 
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    struct SecretPayload {
+        token: SecretMaterial,
+    }
+
     #[test]
     fn rejects_unsafe_record_ids() {
         for value in [".hidden", "a/b", "..", "has\0nul", "CON", "LPT9"] {
@@ -736,6 +780,46 @@ mod tests {
             .unwrap();
         assert_eq!(parsed.payload.description, "---\nnot a doc boundary\n");
         assert_eq!(parsed.prose, "# notes\n");
+    }
+
+    #[test]
+    fn secret_ref_capable_rejects_inline_secret_without_private_file_support() {
+        let codec = WireNativeDocCodec::with_clock(FixedClock("2026-05-05T00:00:00Z"));
+        let document = codec
+            .document(
+                LocalStateRecordKind::MainnetAuthCredential,
+                LocalStateRecordId::new("auth-main").unwrap(),
+                LocalStateSchema::MainnetAuthCredentialV1,
+                SecretPayload {
+                    token: SecretMaterial::Inline(SecretString::new("secret-token").unwrap()),
+                },
+                "",
+            )
+            .unwrap();
+
+        assert!(matches!(
+            enforce_secret_ref_payload_policy(&document, false),
+            Err(LocalStateDocError::PrivateFileUnsupported)
+        ));
+        assert!(enforce_secret_ref_payload_policy(&document, true).is_ok());
+    }
+
+    #[test]
+    fn secret_ref_capable_allows_keychain_ref_without_private_file_support() {
+        let codec = WireNativeDocCodec::with_clock(FixedClock("2026-05-05T00:00:00Z"));
+        let document = codec
+            .document(
+                LocalStateRecordKind::MainnetAuthCredential,
+                LocalStateRecordId::new("auth-main").unwrap(),
+                LocalStateSchema::MainnetAuthCredentialV1,
+                SecretPayload {
+                    token: SecretMaterial::KeychainRef(KeyHandle::new("auth-handle").unwrap()),
+                },
+                "",
+            )
+            .unwrap();
+
+        assert!(enforce_secret_ref_payload_policy(&document, false).is_ok());
     }
 
     #[test]
