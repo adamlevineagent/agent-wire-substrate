@@ -38,13 +38,17 @@ and HTTP manifests are built from `McpTool::ALL` and `HttpRoute::ALL` in
 ```sh
 agent-wire-substrate-node identity signup
 agent-wire-substrate-node identity login
+agent-wire-substrate-node identity resume
 agent-wire-substrate-node identity status
 agent-wire-substrate-node identity persist ~/.wire-node/state
 agent-wire-substrate-node identity load ~/.wire-node/state
 ```
 
-`signup`, `login`, and `status` expose the typed protocol bindings. `persist`
-and `load` exercise the local V1 node identity store. The persisted document is
+`signup` exposes the typed registration binding. `login` and `resume` run the
+real mainnet auth path: existing persisted state first, then token env/file,
+then `WIRE_DEVICE_SECRET` resume, then `WIRE_OPERATOR_EMAIL` registration.
+`status` exposes the typed Wire status binding. `persist` and `load` exercise
+the local V1 node identity store. The persisted document is
 `identity_snapshot/v1-identity.md` under the selected state directory and
 contains only compact node identity state: node id, operator handle, namespace,
 master key id, and endpoints.
@@ -59,6 +63,11 @@ It uses `WIRE_API_TOKEN`, `WIRE_API_TOKEN_FILE`, `WIRE_DEVICE_SECRET`, or
 `WIRE_OPERATOR_EMAIL` as bootstrap input and persists validated auth state in
 `~/.wire-node/state/mainnet_auth_credential/agent-wire-substrate-node.md`.
 The auth loader can migrate the legacy JSON auth file after validating it.
+`WIRE_AUTH_SECRET_BACKEND=auto|private-file|keychain` controls token storage:
+`auto` uses user-only private files on Unix and the OS credential store on
+Windows; `keychain` forces the OS credential store (macOS Keychain, Windows
+Credential Manager/DPAPI-backed storage, or the platform provider exposed by the
+keyring backend).
 
 ## Chain Compile And Execute
 

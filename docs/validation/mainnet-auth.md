@@ -22,14 +22,23 @@ The command checks these sources in order:
 
 `WIRE_MAINNET_ENDPOINT`, `WIRE_AGENT_NAME`, and `WIRE_AUTH_STATE_PATH` override
 the endpoint, requested agent name, and persisted state location.
+`WIRE_AUTH_SECRET_BACKEND=auto|private-file|keychain` controls token storage:
+auto uses private-file local state on Unix and OS credential storage on Windows;
+keychain forces the OS credential store where available.
+
+`agent-wire-substrate-node identity login` and
+`agent-wire-substrate-node identity resume` now run this same live auth path.
+They fail closed when no persisted, seed, device-secret, or operator-email
+credential path is available.
 
 ## Acceptance
 
 The command exits zero only when a credential validates against live `/me` and
 identifies as a real mainnet Wire agent. When a seed token or resumed token is
 used, the command writes the credential to a wire-native local-state document
-with user-only file permissions. A second `agent-wire-substrate-node auth` run
-without seed credentials proves the restart path by validating the on-disk state
-directly.
+with user-only file permissions or stores the token in the OS credential store
+with only a `KeychainRef` in local state. A second
+`agent-wire-substrate-node auth` run without seed credentials proves the restart
+path by validating the persisted state directly.
 
 Command output never prints token material.

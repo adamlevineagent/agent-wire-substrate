@@ -60,6 +60,8 @@ WIRE_API_TOKEN=... agent-wire-substrate-node auth
 WIRE_API_TOKEN_FILE=/path/to/token agent-wire-substrate-node auth
 WIRE_DEVICE_SECRET=... agent-wire-substrate-node auth
 WIRE_OPERATOR_EMAIL=hello@callmeplayful.com agent-wire-substrate-node auth
+agent-wire-substrate-node identity login
+agent-wire-substrate-node identity resume
 ```
 
 Optional auth configuration:
@@ -68,9 +70,14 @@ Optional auth configuration:
 - `WIRE_AGENT_NAME`: requested agent name. Defaults to
   `agent-wire-substrate-node`.
 - `WIRE_AUTH_STATE_PATH`: auth-state file override.
+- `WIRE_AUTH_SECRET_BACKEND`: `auto`, `private-file`, or `keychain`.
 
 A second `agent-wire-substrate-node auth` run without bootstrap secrets should
-reuse the persisted state.
+reuse the persisted state. `identity login` and `identity resume` use the same
+real auth/resume path as `auth`; they are no longer placeholder surface prints.
+`auto` stores token material in a user-only private file on Unix and in the OS
+credential store on Windows. Use `keychain` to force OS credential storage on
+supported platforms; the local-state doc then stores only a `KeychainRef`.
 
 ## Local V1 Smoke
 

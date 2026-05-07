@@ -71,7 +71,8 @@ impl LocalStateRecordKind {
 
     pub fn secret_policy(&self) -> SecretPolicy {
         match self {
-            Self::MainnetAuthCredential | Self::TunnelState => SecretPolicy::PrivateFile,
+            Self::MainnetAuthCredential => SecretPolicy::SecretRefCapable,
+            Self::TunnelState => SecretPolicy::PrivateFile,
             _ => SecretPolicy::Public,
         }
     }
@@ -605,9 +606,8 @@ fn write_file(
 ) -> Result<(), LocalStateDocError> {
     match secret_policy {
         SecretPolicy::Public => fs::write(path, bytes).map_err(LocalStateDocError::from),
-        SecretPolicy::PrivateFile | SecretPolicy::SecretRefCapable => {
-            Err(LocalStateDocError::PrivateFileUnsupported)
-        }
+        SecretPolicy::SecretRefCapable => fs::write(path, bytes).map_err(LocalStateDocError::from),
+        SecretPolicy::PrivateFile => Err(LocalStateDocError::PrivateFileUnsupported),
     }
 }
 

@@ -90,7 +90,7 @@ mod tests {
     fn v1_node_surface_exposes_cli_mcp_http_and_maintenance_bindings() {
         let manifest = V1NodeSurfaceManifest::v1();
 
-        assert_eq!(manifest.cli.len(), 21);
+        assert_eq!(manifest.cli.len(), 22);
         assert_eq!(manifest.mcp_tools.len(), 55);
         assert_eq!(manifest.http_routes.len(), 56);
         assert_eq!(manifest.implemented_maintenance_count(), 8);
@@ -99,6 +99,10 @@ mod tests {
             .cli
             .iter()
             .any(|surface| surface.command == V1CliCommand::ChainCompile));
+        assert!(manifest
+            .cli
+            .iter()
+            .any(|surface| surface.command == V1CliCommand::IdentityResume));
     }
 
     #[test]

@@ -13,6 +13,7 @@ use agent_wire_foundation::canonical_ops::{
 use agent_wire_foundation::{CrossGraphRef, FoundationError, IdempotencyKey};
 use serde::Serialize;
 
+use crate::mainnet_auth::run_mainnet_auth;
 use crate::v1_runtime::{
     default_state_dir, dispatch_http_request, dispatch_mcp_request, run_http_loopback_smoke,
     run_v1_runtime_smoke, V1HttpRequest, V1IdentityStore, V1MaintenanceScheduler,
@@ -33,6 +34,7 @@ pub enum V1CliCommand {
     SurfaceManifest,
     IdentitySignup,
     IdentityLogin,
+    IdentityResume,
     IdentityStatus,
     ChainCompile,
     ChainExecute,
@@ -54,10 +56,11 @@ pub enum V1CliCommand {
 }
 
 impl V1CliCommand {
-    pub const ALL: [Self; 21] = [
+    pub const ALL: [Self; 22] = [
         Self::SurfaceManifest,
         Self::IdentitySignup,
         Self::IdentityLogin,
+        Self::IdentityResume,
         Self::IdentityStatus,
         Self::IdentityPersist,
         Self::ChainCompile,
@@ -83,6 +86,7 @@ impl V1CliCommand {
             Self::SurfaceManifest => "surface manifest",
             Self::IdentitySignup => "identity signup",
             Self::IdentityLogin => "identity login",
+            Self::IdentityResume => "identity resume",
             Self::IdentityStatus => "identity status",
             Self::ChainCompile => "chain compile",
             Self::ChainExecute => "chain execute",
@@ -681,7 +685,7 @@ fn run_chain_cli(args: &[String]) -> Result<String, V1NodeSurfaceError> {
 fn run_identity_cli(args: &[String]) -> Result<String, V1NodeSurfaceError> {
     match args.first().map(String::as_str) {
         Some("signup") => to_pretty_json(&dispatch_http_route(HttpRoute::Register)),
-        Some("login") => to_pretty_json(&dispatch_mcp_tool(McpTool::WireIdentify)),
+        Some("login") | Some("resume") => run_identity_login(),
         Some("persist") => {
             let state_dir = args
                 .get(1)
@@ -711,6 +715,16 @@ fn run_identity_cli(args: &[String]) -> Result<String, V1NodeSurfaceError> {
         Some(other) => Err(V1NodeSurfaceError::UnknownCommand(format!(
             "identity {other}"
         ))),
+    }
+}
+
+fn run_identity_login() -> Result<String, V1NodeSurfaceError> {
+    let report = run_mainnet_auth();
+    let output = report.to_markdown();
+    if report.all_green() {
+        Ok(output)
+    } else {
+        Err(V1NodeSurfaceError::Runtime(output))
     }
 }
 
@@ -838,7 +852,7 @@ mod tests {
     fn manifest_exposes_v1_protocol_surface_without_runtime_strings() {
         let manifest = V1NodeSurfaceManifest::v1();
 
-        assert_eq!(manifest.cli.len(), 21);
+        assert_eq!(manifest.cli.len(), 22);
         assert_eq!(manifest.mcp_tools.len(), 55);
         assert_eq!(manifest.http_routes.len(), 56);
         assert_eq!(manifest.maintenance_tasks.len(), 12);
@@ -856,6 +870,10 @@ mod tests {
             .cli
             .iter()
             .any(|surface| surface.command == V1CliCommand::RuntimeSmoke));
+        assert!(manifest
+            .cli
+            .iter()
+            .any(|surface| surface.command == V1CliCommand::IdentityResume));
     }
 
     #[test]

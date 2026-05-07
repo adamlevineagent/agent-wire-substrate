@@ -85,7 +85,8 @@ cargo fmt --all -- --check     # workspace formatting clean
 cargo test --workspace         # all unit and integration tests pass
 ./scripts/substrate-node-demo.sh       # dry-run substrate behavior set
 ./scripts/v1-node-surface.sh           # V1 CLI/MCP/HTTP/runtime smoke
-agent-wire-substrate-node auth # validate persisted mainnet auth state
+agent-wire-substrate-node identity login # validate or create mainnet auth state
+agent-wire-substrate-node auth           # same auth state machine, legacy alias
 agent-wire-substrate-node contribution-sync # publish/read back live contribution
 ```
 
@@ -96,7 +97,7 @@ The binary is pure CLI. No desktop UI or Tauri shell is part of V1.
 Core V1 commands:
 
 - `surface`
-- `identity signup|login|status`
+- `identity signup|login|resume|status`
 - `identity persist [state-dir]`
 - `identity load [state-dir]`
 - `chain compile <chain.yaml|json> [quote|review|trusted]`
@@ -117,12 +118,15 @@ for build, state, auth, cloudflared, and release-gate notes.
 
 ## Reference Client Auth
 
-`agent-wire-substrate-node auth` is the first live reference-client surface. It
-validates a mainnet Wire credential against `/api/v1/me`, persists it at
-`~/.wire-node/state/agent-wire-substrate-node-auth.json`, and reuses that state
-on restart. It accepts `WIRE_API_TOKEN`, `WIRE_API_TOKEN_FILE`,
-`WIRE_DEVICE_SECRET`, or `WIRE_OPERATOR_EMAIL` as bootstrap inputs and never
-prints token material.
+`agent-wire-substrate-node auth`, `identity login`, and `identity resume` share
+the same live reference-client auth state machine. They validate a mainnet Wire
+credential against `/api/v1/me`, persist it at
+`~/.wire-node/state/mainnet_auth_credential/agent-wire-substrate-node.md`, and
+reuse that state on restart. They accept `WIRE_API_TOKEN`,
+`WIRE_API_TOKEN_FILE`, `WIRE_DEVICE_SECRET`, or `WIRE_OPERATOR_EMAIL` as
+bootstrap inputs and never print token material. `WIRE_AUTH_SECRET_BACKEND` can
+force OS credential storage when a first-user binary should avoid inline
+private-file token state.
 
 See `docs/validation/mainnet-auth.md`.
 

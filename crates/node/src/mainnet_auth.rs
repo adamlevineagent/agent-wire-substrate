@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use agent_wire_foundation::{
-    LocalStateRecordId, LocalStateRecordKind, LocalStateSchema, LocalStateSubject,
+    KeyHandle, LocalStateRecordId, LocalStateRecordKind, LocalStateSchema, LocalStateSubject,
     LocalStateSubjectKind, SecretMaterial, SecretString, TopicTag, WireHandle, WireNativeDocCodec,
 };
 use serde::{Deserialize, Serialize};
@@ -18,6 +18,7 @@ const DEFAULT_STATE_RELATIVE_PATH: &str =
     ".wire-node/state/mainnet_auth_credential/agent-wire-substrate-node.md";
 const LEGACY_STATE_RELATIVE_PATH: &str = ".wire-node/state/agent-wire-substrate-node-auth.json";
 const AUTH_STATE_VERSION: u32 = 1;
+const KEYRING_SERVICE: &str = "agent-wire-substrate-node";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MainnetAuthReport {
@@ -140,6 +141,76 @@ struct MainnetAuthConfig {
     seed_token: Option<String>,
     seed_token_source: Option<String>,
     state_path: PathBuf,
+    secret_backend: MainnetAuthSecretBackend,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MainnetAuthSecretBackend {
+    Auto,
+    PrivateFile,
+    Keychain,
+}
+
+impl MainnetAuthSecretBackend {
+    fn from_env_value(value: Option<String>) -> Result<Self, String> {
+        match value.as_deref() {
+            None | Some("auto") => Ok(Self::Auto),
+            Some("private-file" | "private_file" | "file") => Ok(Self::PrivateFile),
+            Some("keychain" | "os-keychain" | "credential-store" | "dpapi") => Ok(Self::Keychain),
+            Some(other) => Err(format!(
+                "WIRE_AUTH_SECRET_BACKEND must be auto, private-file, or keychain; got `{other}`"
+            )),
+        }
+    }
+
+    fn storage(self) -> MainnetAuthSecretStorage {
+        match self {
+            Self::Auto if cfg!(windows) => MainnetAuthSecretStorage::Keychain,
+            Self::Auto | Self::PrivateFile => MainnetAuthSecretStorage::PrivateFile,
+            Self::Keychain => MainnetAuthSecretStorage::Keychain,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MainnetAuthSecretStorage {
+    PrivateFile,
+    Keychain,
+}
+
+impl MainnetAuthSecretStorage {
+    fn name(&self) -> &'static str {
+        match self {
+            Self::PrivateFile => "private_file",
+            Self::Keychain => "keychain_ref",
+        }
+    }
+}
+
+trait MainnetSecretStore {
+    fn store(&self, handle: &KeyHandle, secret: &str) -> Result<(), String>;
+    fn load(&self, handle: &KeyHandle) -> Result<String, String>;
+}
+
+#[derive(Debug, Default)]
+struct KeyringMainnetSecretStore;
+
+impl MainnetSecretStore for KeyringMainnetSecretStore {
+    fn store(&self, handle: &KeyHandle, secret: &str) -> Result<(), String> {
+        let entry = keyring::Entry::new(KEYRING_SERVICE, handle.as_str())
+            .map_err(|error| format!("failed to open OS credential store: {error}"))?;
+        entry
+            .set_password(secret)
+            .map_err(|error| format!("failed to store auth token in OS credential store: {error}"))
+    }
+
+    fn load(&self, handle: &KeyHandle) -> Result<String, String> {
+        let entry = keyring::Entry::new(KEYRING_SERVICE, handle.as_str())
+            .map_err(|error| format!("failed to open OS credential store: {error}"))?;
+        entry
+            .get_password()
+            .map_err(|error| format!("failed to load auth token from OS credential store: {error}"))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -183,15 +254,29 @@ impl MainnetAuthStateDoc {
         })
     }
 
-    fn into_state(self) -> Result<MainnetAuthState, String> {
+    fn from_state_with_keychain_ref(
+        state: &MainnetAuthState,
+        handle: KeyHandle,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            version: state.version,
+            endpoint: state.endpoint.clone(),
+            agent_name: state.agent_name.clone(),
+            api_token: SecretMaterial::KeychainRef(handle),
+            agent_id: state.agent_id.clone(),
+            pseudonym: state.pseudonym.clone(),
+            handle_path: state.handle_path.clone(),
+            updated_at: state.updated_at.clone(),
+        })
+    }
+
+    fn into_state(
+        self,
+        secret_store: &impl MainnetSecretStore,
+    ) -> Result<MainnetAuthState, String> {
         let api_token = match self.api_token {
             SecretMaterial::Inline(secret) => secret.expose_secret().to_owned(),
-            SecretMaterial::KeychainRef(handle) => {
-                return Err(format!(
-                    "keychain auth token `{}` is not supported by the V1 reference client yet",
-                    handle.as_str()
-                ))
-            }
+            SecretMaterial::KeychainRef(handle) => secret_store.load(&handle)?,
         };
         Ok(MainnetAuthState {
             version: self.version,
@@ -266,6 +351,7 @@ pub fn run_mainnet_auth() -> MainnetAuthReport {
 }
 
 pub(crate) fn load_persisted_mainnet_credential() -> Result<PersistedMainnetCredential, String> {
+    let secret_store = KeyringMainnetSecretStore;
     let endpoint = env::var("WIRE_MAINNET_ENDPOINT")
         .unwrap_or_else(|_| DEFAULT_MAINNET_ENDPOINT.to_owned())
         .trim_end_matches('/')
@@ -278,7 +364,7 @@ pub(crate) fn load_persisted_mainnet_credential() -> Result<PersistedMainnetCred
         Some(path) => vec![path],
         None => vec![default_state_path()?, legacy_default_state_path()?],
     };
-    let loaded = load_first_existing_state(&candidates)?;
+    let loaded = load_first_existing_state(&candidates, &secret_store)?;
     let state = loaded.state;
     if state.endpoint != endpoint {
         return Err(format!(
@@ -311,6 +397,7 @@ fn run_mainnet_auth_with_transport(
     config: MainnetAuthConfig,
     transport: &impl MainnetAuthTransport,
 ) -> MainnetAuthReport {
+    let secret_store = KeyringMainnetSecretStore;
     let mut report = MainnetAuthReport {
         endpoint: config.endpoint.clone(),
         requested_agent_name: config.agent_name.clone(),
@@ -320,12 +407,17 @@ fn run_mainnet_auth_with_transport(
         subtests: Vec::new(),
     };
 
-    if let Some(loaded) = load_state(&config.state_path, &mut report) {
+    if let Some(loaded) = load_state(&config.state_path, &mut report, &secret_store) {
         if loaded.state.endpoint == config.endpoint {
             match transport.validate_token(&config.endpoint, &loaded.state.api_token) {
                 Ok(identity) => {
                     if loaded.migrated_from_legacy {
-                        match persist_state(&config.state_path, &loaded.state) {
+                        match persist_state_with_secret_backend(
+                            &config.state_path,
+                            &loaded.state,
+                            config.secret_backend,
+                            &secret_store,
+                        ) {
                             Ok(()) => report.subtests.push(passed_step(
                                 "legacy-auth-state-migrates",
                                 "the reference client rewrites legacy JSON auth state as a wire-native local-state doc",
@@ -446,12 +538,18 @@ fn run_mainnet_auth_with_transport(
                 handle_path: identity.handle_path.clone(),
                 updated_at: utc_now(),
             };
-            match persist_state(&config.state_path, &state) {
+            match persist_state_with_secret_backend(
+                &config.state_path,
+                &state,
+                config.secret_backend,
+                &secret_store,
+            ) {
                 Ok(()) => report.subtests.push(passed_step(
                     "credential-persists-to-disk",
                     "the restart path can reload the mainnet credential from the reference-client state file",
                     vec![
                         format!("wrote `{}`", path_for_report(&config.state_path)),
+                        format!("secret backend `{}`", config.secret_backend.storage().name()),
                         "token material is omitted from command output".to_owned(),
                     ],
                 )),
@@ -507,6 +605,8 @@ impl MainnetAuthConfig {
             Some((token, source)) => (Some(token), Some(source)),
             None => (None, None),
         };
+        let secret_backend =
+            MainnetAuthSecretBackend::from_env_value(env_optional("WIRE_AUTH_SECRET_BACKEND"))?;
 
         Ok(Self {
             endpoint,
@@ -516,6 +616,7 @@ impl MainnetAuthConfig {
             seed_token,
             seed_token_source,
             state_path,
+            secret_backend,
         })
     }
 }
@@ -571,7 +672,11 @@ impl MainnetAuthTransport for UreqMainnetAuthTransport {
     }
 }
 
-fn load_state(path: &Path, report: &mut MainnetAuthReport) -> Option<LoadedMainnetAuthState> {
+fn load_state(
+    path: &Path,
+    report: &mut MainnetAuthReport,
+    secret_store: &impl MainnetSecretStore,
+) -> Option<LoadedMainnetAuthState> {
     let candidates = if path == default_state_path().unwrap_or_else(|_| path.to_path_buf()) {
         vec![path.to_path_buf(), legacy_default_state_path().ok()?]
     } else {
@@ -590,7 +695,7 @@ fn load_state(path: &Path, report: &mut MainnetAuthReport) -> Option<LoadedMainn
         return None;
     };
 
-    match read_state_file(&existing_path) {
+    match read_state_file_with_secret_store(&existing_path, secret_store) {
         Ok(state) => {
             report.subtests.push(passed_step(
                 "auth-state-read",
@@ -614,15 +719,45 @@ fn load_state(path: &Path, report: &mut MainnetAuthReport) -> Option<LoadedMainn
     }
 }
 
+#[cfg(test)]
 fn persist_state(path: &Path, state: &MainnetAuthState) -> Result<(), String> {
+    persist_state_with_secret_backend(
+        path,
+        state,
+        MainnetAuthSecretBackend::PrivateFile,
+        &KeyringMainnetSecretStore,
+    )
+}
+
+fn persist_state_with_secret_backend(
+    path: &Path,
+    state: &MainnetAuthState,
+    secret_backend: MainnetAuthSecretBackend,
+    secret_store: &impl MainnetSecretStore,
+) -> Result<(), String> {
+    let storage = secret_backend.storage();
+    if storage == MainnetAuthSecretStorage::PrivateFile && cfg!(not(unix)) {
+        return Err(
+            "private-file auth backend is unsupported on this platform; use WIRE_AUTH_SECRET_BACKEND=keychain"
+                .to_owned(),
+        );
+    }
     let codec = WireNativeDocCodec::new();
+    let payload = match storage {
+        MainnetAuthSecretStorage::PrivateFile => MainnetAuthStateDoc::from_state(state)?,
+        MainnetAuthSecretStorage::Keychain => {
+            let handle = auth_key_handle(state)?;
+            secret_store.store(&handle, &state.api_token)?;
+            MainnetAuthStateDoc::from_state_with_keychain_ref(state, handle)?
+        }
+    };
     let mut document = codec
         .document(
             LocalStateRecordKind::MainnetAuthCredential,
             LocalStateRecordId::new("agent-wire-substrate-node")
                 .map_err(|error| format!("failed to build auth record id: {error}"))?,
             LocalStateSchema::MainnetAuthCredentialV1,
-            MainnetAuthStateDoc::from_state(state)?,
+            payload,
             "# Operator Notes\n\nPersisted mainnet credential for agent-wire-substrate-node. CLI output redacts token material.\n",
         )
         .map_err(|error| format!("failed to build auth state doc: {error}"))?;
@@ -645,10 +780,21 @@ fn persist_state(path: &Path, state: &MainnetAuthState) -> Result<(), String> {
         .map_err(|error| format!("failed to install auth state doc: {error}"))
 }
 
-fn load_first_existing_state(paths: &[PathBuf]) -> Result<LoadedMainnetAuthState, String> {
+fn auth_key_handle(state: &MainnetAuthState) -> Result<KeyHandle, String> {
+    KeyHandle::new(format!(
+        "agent-wire-substrate-node:mainnet-auth:{}",
+        state.agent_id
+    ))
+    .map_err(|error| format!("failed to build auth key handle: {error}"))
+}
+
+fn load_first_existing_state(
+    paths: &[PathBuf],
+    secret_store: &impl MainnetSecretStore,
+) -> Result<LoadedMainnetAuthState, String> {
     for path in paths {
         if path.exists() {
-            let state = read_state_file(path)?;
+            let state = read_state_file_with_secret_store(path, secret_store)?;
             return Ok(LoadedMainnetAuthState {
                 state,
                 path: path.clone(),
@@ -665,7 +811,10 @@ fn load_first_existing_state(paths: &[PathBuf]) -> Result<LoadedMainnetAuthState
     ))
 }
 
-fn read_state_file(path: &Path) -> Result<MainnetAuthState, String> {
+fn read_state_file_with_secret_store(
+    path: &Path,
+    secret_store: &impl MainnetSecretStore,
+) -> Result<MainnetAuthState, String> {
     let text = fs::read_to_string(path).map_err(|error| {
         format!(
             "state file `{}` could not be read: {error}",
@@ -678,7 +827,7 @@ fn read_state_file(path: &Path) -> Result<MainnetAuthState, String> {
             .map_err(|error| {
                 format!("state doc `{}` was invalid: {error}", path_for_report(path))
             })?;
-        return document.payload.into_state();
+        return document.payload.into_state(secret_store);
     }
     serde_json::from_str::<MainnetAuthState>(&text).map_err(|error| {
         format!(
@@ -875,6 +1024,30 @@ mod tests {
         calls: Mutex<Vec<String>>,
     }
 
+    #[derive(Default)]
+    struct MemorySecretStore {
+        secrets: Mutex<HashMap<String, String>>,
+    }
+
+    impl MainnetSecretStore for MemorySecretStore {
+        fn store(&self, handle: &KeyHandle, secret: &str) -> Result<(), String> {
+            self.secrets
+                .lock()
+                .unwrap()
+                .insert(handle.as_str().to_owned(), secret.to_owned());
+            Ok(())
+        }
+
+        fn load(&self, handle: &KeyHandle) -> Result<String, String> {
+            self.secrets
+                .lock()
+                .unwrap()
+                .get(handle.as_str())
+                .cloned()
+                .ok_or_else(|| format!("missing secret `{}`", handle.as_str()))
+        }
+    }
+
     impl MainnetAuthTransport for FakeAuthTransport {
         fn validate_token(&self, _endpoint: &str, token: &str) -> Result<MainnetIdentity, String> {
             self.calls.lock().unwrap().push(format!("validate:{token}"));
@@ -988,7 +1161,7 @@ mod tests {
             .parse::<MainnetAuthStateDoc>(&fs::read_to_string(path).unwrap())
             .unwrap()
             .payload
-            .into_state()
+            .into_state(&MemorySecretStore::default())
             .unwrap();
         assert_eq!(persisted.api_token, "seed-token");
         assert_eq!(persisted.handle_path, identity.handle_path);
@@ -1018,6 +1191,37 @@ mod tests {
     }
 
     #[test]
+    fn persists_keychain_ref_without_inline_auth_token() {
+        let path = test_state_path("keychain-ref");
+        let state = MainnetAuthState {
+            version: AUTH_STATE_VERSION,
+            endpoint: DEFAULT_MAINNET_ENDPOINT.to_owned(),
+            agent_name: DEFAULT_AGENT_NAME.to_owned(),
+            api_token: "secret-token".to_owned(),
+            agent_id: "agent-keychain".to_owned(),
+            pseudonym: "wire_agent_keychain".to_owned(),
+            handle_path: "agent/playful/keychain".to_owned(),
+            updated_at: utc_now(),
+        };
+        let secret_store = MemorySecretStore::default();
+
+        persist_state_with_secret_backend(
+            &path,
+            &state,
+            MainnetAuthSecretBackend::Keychain,
+            &secret_store,
+        )
+        .unwrap();
+
+        let body = fs::read_to_string(&path).unwrap();
+        assert!(body.contains("keychain_ref"));
+        assert!(!body.contains("secret-token"));
+        let loaded = read_state_file_with_secret_store(&path, &secret_store).unwrap();
+        assert_eq!(loaded.api_token, "secret-token");
+        assert_eq!(loaded.agent_id, "agent-keychain");
+    }
+
+    #[test]
     fn fails_closed_without_any_credential_path() {
         let path = test_state_path("missing");
         let report =
@@ -1039,6 +1243,7 @@ mod tests {
             seed_token: None,
             seed_token_source: None,
             state_path: path,
+            secret_backend: MainnetAuthSecretBackend::PrivateFile,
         }
     }
 

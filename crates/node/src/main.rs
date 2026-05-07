@@ -94,7 +94,8 @@ fn main() {
             println!(
                 "  surface                      Print the V1 CLI/MCP/HTTP/maintenance manifest"
             );
-            println!("  identity signup|login|status Print typed identity protocol binding");
+            println!("  identity signup|login|resume|status");
+            println!("                               Signup binding plus real login/resume auth");
             println!("  identity persist [state-dir] Persist demo identity state atomically");
             println!("  identity load [state-dir]    Load persisted V1 identity state");
             println!("  chain compile <chain.yaml>   Compile a canonical Wire action chain");
