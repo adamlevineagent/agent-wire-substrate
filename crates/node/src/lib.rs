@@ -5,6 +5,7 @@
 
 pub mod contribution_sync;
 pub mod d3_live_compute_settlement;
+pub mod handle_canonicalization;
 pub mod l6_failure_injection;
 pub mod l6_observability;
 pub mod l6_recovery;
@@ -29,6 +30,7 @@ pub use contribution_sync::{
 pub use d3_live_compute_settlement::{
     run_d3_live_compute_settlement, D3LiveComputeSettlementReport, D3Status, D3Subtest,
 };
+pub use handle_canonicalization::{canonicalize_mcp_response, HandleCanonicalizationOptions};
 pub use l6_failure_injection::{
     run_failure_injection_scenarios, run_failure_injection_scenarios_with_policy, InjectionReport,
     InjectionScenarioResult, InjectionState, KillPoint, RecoveryPolicy, WriteOncePolicy,
