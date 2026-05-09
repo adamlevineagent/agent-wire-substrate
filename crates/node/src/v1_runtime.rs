@@ -13,7 +13,9 @@ use agent_wire_foundation::{
 };
 use agent_wire_substrate::NodeConfig;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
+use crate::handle_canonicalization::{canonicalize_mcp_response, HandleCanonicalizationOptions};
 use crate::v1_surface::{
     dispatch_http_route, dispatch_maintenance_task, dispatch_mcp_tool, maintenance_implementation,
     MaintenanceImplementation, V1ProtocolDispatch, V1ProtocolStatus,
@@ -39,6 +41,8 @@ pub struct V1ListenerDispatchReport {
     pub protocol: V1ListenerProtocol,
     pub edge_name: String,
     pub dispatch: V1ProtocolDispatch,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub canonical_response: Option<Value>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -266,19 +270,31 @@ pub fn dispatch_http_request(request: &V1HttpRequest) -> Result<V1ListenerDispat
         protocol: V1ListenerProtocol::Http,
         edge_name: format!("{} {}", request.method, request.path),
         dispatch: dispatch_http_route(route),
+        canonical_response: None,
     })
 }
 
 pub fn dispatch_mcp_request(tool_name: &str) -> Result<V1ListenerDispatchReport, String> {
+    dispatch_mcp_request_with_options(tool_name, HandleCanonicalizationOptions::default())
+}
+
+pub fn dispatch_mcp_request_with_options(
+    tool_name: &str,
+    options: HandleCanonicalizationOptions,
+) -> Result<V1ListenerDispatchReport, String> {
     let tool = McpTool::ALL
         .iter()
         .copied()
         .find(|tool| tool.name() == tool_name)
         .ok_or_else(|| format!("no registered MCP tool for {tool_name}"))?;
+    let dispatch = dispatch_mcp_tool(tool);
+    let dispatch_value = serde_json::to_value(&dispatch)
+        .map_err(|error| format!("failed to encode MCP dispatch response: {error}"))?;
     Ok(V1ListenerDispatchReport {
         protocol: V1ListenerProtocol::Mcp,
         edge_name: tool_name.to_owned(),
-        dispatch: dispatch_mcp_tool(tool),
+        canonical_response: Some(canonicalize_mcp_response(tool, dispatch_value, options)),
+        dispatch,
     })
 }
 
@@ -453,6 +469,19 @@ mod tests {
             }
         ));
         assert!(dispatch_mcp_request("wire_not_real").is_err());
+    }
+
+    #[test]
+    fn mcp_listener_canonicalizes_dispatch_responses() {
+        let report =
+            dispatch_mcp_request("wire_query").expect("registered MCP tool dispatch report");
+
+        let canonical_response = report
+            .canonical_response
+            .as_ref()
+            .expect("MCP dispatch path shapes the outbound response");
+        assert_eq!(canonical_response["canonical_name"], "wire_query");
+        assert_eq!(canonical_response["binding"]["tool"], "wire_query");
     }
 
     #[test]
